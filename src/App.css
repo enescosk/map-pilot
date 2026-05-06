@@ -1,0 +1,640 @@
+.app-shell {
+  background: #0B0F19;
+  color: #e5edf6;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 100vh;
+}
+
+.top-bar {
+  align-items: center;
+  background: rgba(11, 15, 25, 0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(56, 189, 248, 0.25);
+  display: flex;
+  justify-content: space-between;
+  min-height: 72px;
+  padding: 12px 18px;
+}
+
+.app-kicker {
+  color: #9aa7bd;
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.top-bar h1 {
+  color: #dce8ff;
+  font-size: 1.08rem;
+  margin: 4px 0 0;
+}
+
+.top-actions {
+  align-items: center;
+  display: flex;
+  gap: 9px;
+}
+
+.mode-switcher {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  border-radius: 8px;
+  display: flex;
+  overflow: hidden;
+  padding: 2px;
+}
+
+.mode-switcher button {
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: #9ba8bc;
+  font-size: 0.82rem;
+  min-height: auto;
+  padding: 6px 16px;
+  transition: all 0.2s;
+}
+
+.mode-switcher button:hover {
+  color: #bae6fd;
+}
+
+.mode-switcher button.active {
+  background: rgba(14, 165, 233, 0.2);
+  box-shadow: 0 0 12px rgba(14, 165, 233, 0.2);
+  color: #38bdf8;
+  font-weight: 800;
+}
+
+button {
+  background: #2b313b;
+  border: 1px solid #4b5565;
+  border-radius: 6px;
+  color: #e5edf6;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 800;
+  min-height: 34px;
+  padding: 6px 12px;
+}
+
+button:hover {
+  background: #364151;
+}
+
+.status-pill {
+  border: 1px solid #3f4653;
+  border-radius: 999px;
+  color: #c4ccda;
+  font-size: 0.78rem;
+  font-weight: 850;
+  padding: 6px 10px;
+}
+
+.status-pill.good {
+  background: rgba(34, 197, 94, 0.14);
+  border-color: rgba(34, 197, 94, 0.36);
+  color: #86efac;
+}
+
+.status-pill.bad {
+  background: rgba(239, 68, 68, 0.14);
+  border-color: rgba(239, 68, 68, 0.36);
+  color: #fca5a5;
+}
+
+.status-pill.muted {
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.inspector-grid {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  height: calc(100vh - 126px);
+  min-height: 620px;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.hud-left,
+.hud-center,
+.hud-right {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+  transition: all 0.3s ease;
+}
+
+/* Removed redundant panel CSS since it was combined with workspace-panel */
+
+.panel-label {
+  color: #8fa0b7;
+  font-size: 0.72rem;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.panel-heading h2 {
+  color: #f8fafc;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.telemetry-charts {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr;
+}
+
+/* Perception Mode */
+.mode-perception {
+  grid-template-columns: 320px 1fr 340px;
+}
+.mode-perception .hud-left {
+  grid-template-rows: 1fr 1fr;
+}
+.mode-perception .hud-center {
+  grid-template-rows: 1fr;
+}
+.mode-perception .hud-right {
+  grid-template-rows: min-content auto min-content;
+}
+.mode-perception .hud-center .map-workspace,
+.mode-perception .hud-center .decision-panel {
+  display: none;
+}
+.mode-perception .hud-right .control-panel {
+  display: none;
+}
+
+/* Control Mode */
+.mode-control {
+  grid-template-columns: 280px 1fr 380px;
+}
+.mode-control .hud-left {
+  grid-template-rows: 1fr auto;
+}
+.mode-control .hud-center {
+  grid-template-rows: minmax(280px, 40vh) 1fr;
+}
+.mode-control .hud-right {
+  grid-template-rows: auto auto auto;
+}
+.mode-control .hud-center .decision-panel {
+  display: none;
+}
+
+/* Debug Mode */
+.mode-debug {
+  grid-template-columns: 360px 1fr 300px;
+}
+.mode-debug .hud-left {
+  grid-template-rows: auto 1fr;
+}
+.mode-debug .hud-center {
+  grid-template-rows: 1fr;
+}
+.mode-debug .hud-right {
+  grid-template-rows: auto 1fr;
+}
+.mode-debug .hud-center .lidar-workspace,
+.mode-debug .hud-center .map-workspace {
+  display: none;
+}
+.mode-debug .hud-right .control-panel {
+  display: none;
+}
+.workspace-panel,
+.chart-panel,
+.panel {
+  background: rgba(14, 19, 28, 0.85);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(56, 189, 248, 0.18);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  transition: border-color 0.3s;
+}
+
+.workspace-panel:hover,
+.chart-panel:hover,
+.panel:hover {
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+.panel-titlebar,
+.panel-topline,
+.panel-heading {
+  align-items: center;
+  background: linear-gradient(90deg, rgba(14, 165, 233, 0.15) 0%, rgba(20, 24, 34, 0.6) 100%);
+  border-bottom: 1px solid rgba(56, 189, 248, 0.2);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  min-height: 34px;
+  padding: 7px 10px;
+}
+
+.panel-titlebar span,
+.panel-topline span {
+  color: #c0cad8;
+  font-size: 0.84rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-titlebar strong,
+.panel-topline strong {
+  color: #f8fafc;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.camera-workspace,
+.lidar-workspace,
+.map-workspace {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+
+.camera-stage {
+  align-items: center;
+  background: #070809;
+  display: flex;
+  justify-content: center;
+  min-height: 0;
+  position: relative;
+}
+
+.camera-stage img {
+  height: 100%;
+  object-fit: contain;
+  width: 100%;
+}
+
+.camera-stage .preload-frame {
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  width: 1px;
+}
+
+.empty-state {
+  align-items: center;
+  color: #8d98a8;
+  display: flex;
+  font-size: 0.92rem;
+  height: 100%;
+  justify-content: center;
+  min-height: 160px;
+}
+
+.metric-strip {
+  align-items: center;
+  background: #171a20;
+  border-top: 1px solid #2e343e;
+  color: #aeb8c7;
+  display: flex;
+  font-size: 0.78rem;
+  gap: 12px;
+  justify-content: space-between;
+  min-height: 34px;
+  padding: 7px 10px;
+}
+
+.lidar-workspace {
+  border-color: #7c6cff;
+}
+
+.segmented-control {
+  background: #151920;
+  border: 1px solid #3a4352;
+  border-radius: 6px;
+  display: inline-flex;
+  overflow: hidden;
+}
+
+.segmented-control button {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: #9ba8bc;
+  min-height: 26px;
+  padding: 4px 9px;
+}
+
+.segmented-control button.selected {
+  background: #0ea5e9;
+  color: #04111a;
+}
+
+.lidar-2d-stage {
+  background:
+    radial-gradient(circle, transparent 24%, rgba(55, 189, 248, 0.24) 24.5%, transparent 25%),
+    radial-gradient(circle, transparent 49%, rgba(55, 189, 248, 0.18) 49.5%, transparent 50%),
+    radial-gradient(circle, transparent 74%, rgba(55, 189, 248, 0.16) 74.5%, transparent 75%),
+    linear-gradient(rgba(43, 119, 178, 0.18) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(43, 119, 178, 0.18) 1px, transparent 1px),
+    #070a0c;
+  background-size: 100% 100%, 100% 100%, 100% 100%, 44px 44px, 44px 44px;
+  min-height: 0;
+  position: relative;
+}
+
+.lidar-dot {
+  background: #38bdf8;
+  border-radius: 50%;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.72);
+  height: 4px;
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 4px;
+}
+
+.ego-marker {
+  background: #f8fafc;
+  border: 3px solid #111827;
+  border-radius: 50%;
+  box-shadow: 0 0 0 14px rgba(14, 165, 233, 0.12);
+  height: 18px;
+  left: 50%;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 18px;
+}
+
+.range-chip {
+  background: rgba(15, 23, 42, 0.82);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 999px;
+  color: #bae6fd;
+  font-size: 0.78rem;
+  font-weight: 800;
+  left: 12px;
+  padding: 5px 9px;
+  position: absolute;
+  top: 12px;
+}
+
+.lidar-3d-stage {
+  min-height: 0;
+  position: relative;
+}
+
+.lidar-3d-stage canvas {
+  display: block;
+  height: 100% !important;
+  outline: none;
+  touch-action: none;
+  width: 100% !important;
+}
+
+.lidar-view-controls {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(34px, auto));
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  z-index: 3;
+}
+
+.lidar-view-controls button {
+  background: rgba(16, 21, 28, 0.86);
+  border: 1px solid rgba(125, 211, 252, 0.32);
+  border-radius: 6px;
+  box-shadow: none;
+  color: #dbeafe;
+  font-size: 0.76rem;
+  min-height: 30px;
+  min-width: 34px;
+  padding: 4px 8px;
+}
+
+.lidar-view-controls button:hover {
+  background: rgba(14, 165, 233, 0.28);
+}
+
+.lidar-hud {
+  bottom: 12px;
+  color: #bae6fd;
+  display: flex;
+  font-size: 0.76rem;
+  gap: 8px;
+  left: 12px;
+  pointer-events: none;
+  position: absolute;
+  z-index: 2;
+}
+
+.lidar-hud span {
+  background: rgba(8, 13, 18, 0.72);
+  border: 1px solid rgba(56, 189, 248, 0.26);
+  border-radius: 6px;
+  padding: 5px 7px;
+}
+
+.map-workspace iframe {
+  background: #d8ded7;
+  border: 0;
+  height: 100%;
+  width: 100%;
+}
+
+.chart-panel {
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.chart-panel svg {
+  height: 100%;
+  min-height: 92px;
+  padding: 10px;
+  width: 100%;
+}
+
+.chart-grid {
+  stroke: #475162;
+  stroke-width: 1;
+}
+
+.telemetry-card {
+  min-height: 176px;
+}
+
+.state-grid {
+  display: grid;
+  gap: 9px 12px;
+  grid-template-columns: 108px 1fr;
+  padding: 12px;
+}
+
+.state-grid span {
+  color: #8fa0b7;
+  font-size: 0.78rem;
+}
+
+.state-grid strong {
+  color: #e5edf6;
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.topic-workspace {
+  display: grid;
+  grid-template-rows: auto 1fr minmax(92px, auto);
+}
+
+.topic-scroll {
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+}
+
+.topic-item {
+  border-bottom: 1px solid #252b34;
+  display: grid;
+  gap: 2px;
+  grid-template-columns: 1fr auto;
+  padding: 8px 4px;
+}
+
+.topic-item strong {
+  color: #dbeafe;
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topic-item span {
+  color: #8794a7;
+  font-size: 0.72rem;
+  grid-column: 1 / -1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topic-item em {
+  color: #67e8f9;
+  font-size: 0.72rem;
+  font-style: normal;
+}
+
+.latest-payload {
+  background: #08090b;
+  border-top: 1px solid #2e343e;
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+}
+
+.latest-payload span {
+  color: #f472b6;
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.latest-payload code {
+  color: #9aa7bd;
+  font-size: 0.72rem;
+  max-height: 64px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.playback-bar {
+  align-items: center;
+  background: #24272e;
+  border-top: 1px solid #3a3f49;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 210px 1fr auto;
+  min-height: 54px;
+  padding: 10px 16px;
+}
+
+.playback-bar span,
+.playback-bar strong {
+  color: #d8e0ec;
+  font-size: 0.82rem;
+}
+
+.timeline-wrapper {
+  align-items: center;
+  display: flex;
+  position: relative;
+  width: 100%;
+}
+
+.timeline-control {
+  accent-color: #38bdf8;
+  width: 100%;
+  z-index: 1;
+}
+
+.event-marker {
+  border-radius: 4px;
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.8);
+  cursor: pointer;
+  height: 14px;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  transition: transform 0.2s;
+  width: 8px;
+  z-index: 2;
+}
+
+.event-marker:hover {
+  transform: translate(-50%, -50%) scale(1.5);
+  z-index: 3;
+}
+
+.event-marker.severity-info { background: #38bdf8; }
+.event-marker.severity-warning { background: #f59e0b; }
+.event-marker.severity-critical { background: #ef4444; }
+
+@media (max-width: 1180px) {
+  .inspector-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .left-column,
+  .center-column,
+  .right-column {
+    grid-template-rows: auto;
+  }
+
+  .camera-workspace,
+  .lidar-workspace,
+  .map-workspace {
+    min-height: 420px;
+  }
+}
+
+@media (max-width: 720px) {
+  .top-bar,
+  .top-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .playback-bar {
+    grid-template-columns: 1fr;
+  }
+}
