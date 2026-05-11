@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import ControlPanel from "./components/ControlPanel";
@@ -17,6 +17,7 @@ export type Point3D = {
   y: number;
   z: number;
   intensity?: number;
+  seen?: number;
 };
 
 export type CameraStatus = {
@@ -28,6 +29,7 @@ export type CameraStatus = {
   fps: number;
   issue?: string;
   frameSrc?: string;
+  streamUrl?: string;
   frameCount: number;
   lastTime?: string;
 };
@@ -55,6 +57,7 @@ export type SystemHealthItem = {
 };
 
 export type DecisionLogEntry = {
+  id: string;
   time: string;
   source: string;
   message: string;
@@ -90,6 +93,13 @@ export type BagStatus = {
   startTime?: string;
   endTime?: string;
   durationSeconds?: number;
+};
+
+type BagFileOption = {
+  name: string;
+  path: string;
+  size: number;
+  modifiedAt: number;
 };
 
 type Vector3 = {
@@ -136,9 +146,59 @@ type LatestFrame = {
 export type BagFrame = LatestFrame;
 
 type LidarMode = "2d" | "3d";
+type LidarColorMode = "intensity" | "height" | "distance";
+type LidarCloudState = {
+  points: Point3D[];
+  mapPoints: Point3D[];
+  frameId: string;
+  resolvedFrame?: string;
+  lastTime?: string;
+  filterVersion?: number;
+};
+type PendingPointCloudPacket = {
+  topic: string;
+  points: Point3D[];
+  readings?: LidarReading[];
+  frameId?: string;
+  resolvedFrame?: string;
+  time?: string;
+};
+
+type LidarDebugStats = {
+  pointsCount: number;
+  sourcePointsCount: number;
+  min: Required<Vector3>;
+  max: Required<Vector3>;
+  threeMin: Required<Vector3>;
+  threeMax: Required<Vector3>;
+  firstPoints: Point3D[];
+};
 
 const MAX_SERIES_POINTS = 80;
-const MAX_LIDAR_HISTORY_POINTS = 30000;
+const MAX_LIDAR_HISTORY_POINTS = 16000;
+const MAX_COCKPIT_EVENTS = 120;
+const MAX_RENDERED_POINT_CLOUD_POINTS = 120000;
+const MAX_STORED_LIVE_POINTS = 70000;
+const MAX_LIDAR_MAP_POINTS = 420000;
+const MAX_TOTAL_MAP_POINTS = 650000;
+const LIDAR_MAP_VOXEL_SIZE = 0.08;
+const POINT_CLOUD_FLUSH_MS = 180;
+const LIDAR_RENDER_FPS = 30;
+const DEFAULT_LIDAR_CAMERA_POSITION = new THREE.Vector3(-18, 26, 36);
+const LIDAR_VIEW_RADIUS_METERS = 30;
+const LIDAR_VIEW_MIN_HEIGHT = -2;
+const LIDAR_VIEW_MAX_HEIGHT = 3.6;
+const LIDAR_MIN_RANGE_METERS = 1.1;
+const LIDAR_EGO_CLEARANCE_METERS = 1.15;
+const LIDAR_NOISE_VOXEL_SIZE = 0.5;
+const LIDAR_MIN_VOXEL_POINTS = 4;
+const LIDAR_MIN_NEIGHBOR_POINTS = 7;
+const LIDAR_MAP_CONFIRMATION_VOXEL_SIZE = 0.28;
+const LIDAR_MAP_MIN_SEEN = 2;
+const HEIGHT_COLOR_MIN = -2;
+const HEIGHT_COLOR_MAX = 4;
+const ENABLE_LIDAR_CONTOURS = false;
+const LIDAR_FILTER_VERSION = 3;
 
 const emptyTelemetry: TelemetryState = {
   speed: 0,
@@ -179,6 +239,17 @@ function formatDuration(seconds?: number) {
   return `${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`;
 }
 
+function formatFileSize(bytes?: number) {
+  const size = Number(bytes || 0);
+  if (size >= 1_073_741_824) {
+    return `${(size / 1_073_741_824).toFixed(1)} GB`;
+  }
+  if (size >= 1_048_576) {
+    return `${(size / 1_048_576).toFixed(1)} MB`;
+  }
+  return `${Math.max(0, Math.round(size / 1024))} KB`;
+}
+
 function timeLabel(time?: string) {
   if (!time) {
     return "--";
@@ -204,6 +275,190 @@ function scanReadingsToPoints(readings: LidarReading[]) {
   });
 }
 
+function usesCameraOpticalFrame(frameId?: string, resolvedFrame?: string) {
+  const frame = String(resolvedFrame && !resolvedFrame.includes("raw") ? resolvedFrame : frameId || "").toLowerCase();
+  return frame.includes("camera") || frame.includes("optical") || frame.includes("zed");
+}
+
+function usesWorldFrame(frameId?: string, resolvedFrame?: string) {
+  const frame = String(resolvedFrame && !resolvedFrame.includes("raw") ? resolvedFrame : frameId || "").replace(/^\//, "").toLowerCase();
+  return frame === "odom" || frame === "map";
+}
+
+function pointToThree(point: Point3D, frameId?: string, resolvedFrame?: string) {
+  if (usesCameraOpticalFrame(frameId, resolvedFrame)) {
+    return {
+      x: point.x,
+      y: -point.y,
+      z: -point.z,
+    };
+  }
+
+  return {
+    x: -point.y,
+    y: point.z,
+    z: -point.x,
+  };
+}
+
+function pointToEgoRelative(point: Point3D, vehiclePose?: TelemetryState["pose"]) {
+  const position = vehiclePose?.position;
+  if (!position) {
+    return point;
+  }
+
+  const vehicleX = Number(position.x || 0);
+  const vehicleY = Number(position.y || 0);
+  const vehicleZ = Number(position.z || 0);
+  if (!Number.isFinite(vehicleX) || !Number.isFinite(vehicleY) || !Number.isFinite(vehicleZ)) {
+    return point;
+  }
+
+  return {
+    ...point,
+    x: point.x - vehicleX,
+    y: point.y - vehicleY,
+    z: point.z - vehicleZ,
+  };
+}
+
+function pointToDisplayThree(point: Point3D, frameId?: string, resolvedFrame?: string, vehiclePose?: TelemetryState["pose"]) {
+  const displayPoint = usesWorldFrame(frameId, resolvedFrame) ? pointToEgoRelative(point, vehiclePose) : point;
+  return pointToThree(displayPoint, frameId, resolvedFrame);
+}
+
+function isMeaningfulScenePoint(point: Point3D, frameId?: string, resolvedFrame?: string) {
+  const threePoint = pointToThree(point, frameId, resolvedFrame);
+  const horizontalDistance = Math.hypot(threePoint.x, threePoint.z);
+  const isWorldFrame = usesWorldFrame(frameId, resolvedFrame);
+  return (
+    Number.isFinite(threePoint.x) &&
+    Number.isFinite(threePoint.y) &&
+    Number.isFinite(threePoint.z) &&
+    (isWorldFrame || horizontalDistance >= LIDAR_MIN_RANGE_METERS) &&
+    (isWorldFrame || horizontalDistance <= LIDAR_VIEW_RADIUS_METERS) &&
+    (isWorldFrame || Math.abs(threePoint.x) > LIDAR_EGO_CLEARANCE_METERS || Math.abs(threePoint.z) > LIDAR_EGO_CLEARANCE_METERS) &&
+    threePoint.y >= LIDAR_VIEW_MIN_HEIGHT &&
+    threePoint.y <= LIDAR_VIEW_MAX_HEIGHT
+  );
+}
+
+function isMeaningfulDisplayPoint(point: Point3D, frameId?: string, resolvedFrame?: string, vehiclePose?: TelemetryState["pose"]) {
+  const threePoint = pointToDisplayThree(point, frameId, resolvedFrame, vehiclePose);
+  const horizontalDistance = Math.hypot(threePoint.x, threePoint.z);
+  return (
+    Number.isFinite(threePoint.x) &&
+    Number.isFinite(threePoint.y) &&
+    Number.isFinite(threePoint.z) &&
+    horizontalDistance <= LIDAR_VIEW_RADIUS_METERS &&
+    threePoint.y >= LIDAR_VIEW_MIN_HEIGHT &&
+    threePoint.y <= LIDAR_VIEW_MAX_HEIGHT
+  );
+}
+
+function noiseVoxelKey(point: Vector3) {
+  return [
+    Math.round(Number(point.x || 0) / LIDAR_NOISE_VOXEL_SIZE),
+    Math.round(Number(point.y || 0) / LIDAR_NOISE_VOXEL_SIZE),
+    Math.round(Number(point.z || 0) / LIDAR_NOISE_VOXEL_SIZE),
+  ].join(":");
+}
+
+function denoisePointCloud(points: Point3D[], frameId?: string, resolvedFrame?: string) {
+  if (points.length === 0) {
+    return points;
+  }
+
+  const candidates: Array<{ point: Point3D; threePoint: Vector3; key: string }> = [];
+  const voxelCounts = new Map<string, number>();
+
+  for (const point of points) {
+    if (!isMeaningfulScenePoint(point, frameId, resolvedFrame)) {
+      continue;
+    }
+
+    const threePoint = pointToThree(point, frameId, resolvedFrame);
+    const key = noiseVoxelKey(threePoint);
+    candidates.push({ point, threePoint, key });
+    voxelCounts.set(key, (voxelCounts.get(key) || 0) + 1);
+  }
+
+  if (candidates.length < Math.min(250, points.length * 0.15)) {
+    return candidates.map((candidate) => candidate.point);
+  }
+
+  const filtered = candidates.filter(({ threePoint, key }) => {
+    if ((voxelCounts.get(key) || 0) >= LIDAR_MIN_VOXEL_POINTS) {
+      return true;
+    }
+
+    const vx = Math.round(Number(threePoint.x || 0) / LIDAR_NOISE_VOXEL_SIZE);
+    const vy = Math.round(Number(threePoint.y || 0) / LIDAR_NOISE_VOXEL_SIZE);
+    const vz = Math.round(Number(threePoint.z || 0) / LIDAR_NOISE_VOXEL_SIZE);
+    let support = voxelCounts.get(key) || 0;
+    for (let dx = -1; dx <= 1; dx += 1) {
+      for (let dy = -1; dy <= 1; dy += 1) {
+        for (let dz = -1; dz <= 1; dz += 1) {
+          if (dx === 0 && dy === 0 && dz === 0) {
+            continue;
+          }
+          support += voxelCounts.get(`${vx + dx}:${vy + dy}:${vz + dz}`) || 0;
+          if (support >= LIDAR_MIN_NEIGHBOR_POINTS) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  });
+
+  return filtered.length >= Math.min(200, candidates.length * 0.2)
+    ? filtered.map((candidate) => candidate.point)
+    : candidates.map((candidate) => candidate.point);
+}
+
+function mapConfirmationKey(point: Point3D) {
+  return [
+    Math.round(point.x / LIDAR_MAP_CONFIRMATION_VOXEL_SIZE),
+    Math.round(point.y / LIDAR_MAP_CONFIRMATION_VOXEL_SIZE),
+    Math.round(point.z / LIDAR_MAP_CONFIRMATION_VOXEL_SIZE),
+  ].join(":");
+}
+
+function setTurboColor(color: THREE.Color, value: number) {
+  const t = Math.max(0, Math.min(1, value));
+  if (t < 0.2) {
+    color.setHSL(0.62 - t * 0.7, 1, 0.55);
+  } else if (t < 0.45) {
+    color.setHSL(0.48 - (t - 0.2) * 0.5, 1, 0.5);
+  } else if (t < 0.7) {
+    color.setHSL(0.32 - (t - 0.45) * 0.45, 1, 0.5);
+  } else {
+    color.setHSL(0.11 - (t - 0.7) * 0.36, 1, 0.52);
+  }
+}
+
+function createPointSpriteTexture() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 64;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return undefined;
+  }
+
+  const gradient = context.createRadialGradient(32, 32, 0, 32, 32, 31);
+  gradient.addColorStop(0, "rgba(255,255,255,1)");
+  gradient.addColorStop(0.45, "rgba(255,255,255,0.92)");
+  gradient.addColorStop(1, "rgba(255,255,255,0)");
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 64, 64);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  return texture;
+}
+
 function appendLidarHistory(current: Point3D[], nextPoints: Point3D[]) {
   if (nextPoints.length === 0) {
     return current;
@@ -212,9 +467,116 @@ function appendLidarHistory(current: Point3D[], nextPoints: Point3D[]) {
   return [...current, ...nextPoints].slice(-MAX_LIDAR_HISTORY_POINTS);
 }
 
-function isDensePointCloud(_topic?: string, points?: Point3D[]) {
-  // Any cloud with > 500 points is considered dense — always replace, never accumulate
-  return Boolean(points && points.length > 500);
+function appendCockpitEvent(events: CockpitEvent[], event: CockpitEvent) {
+  const duplicateWindowSeconds = 1.2;
+  const exists = events.some((current) => (
+    current.source === event.source &&
+    current.title === event.title &&
+    Math.abs(current.timestamp - event.timestamp) < duplicateWindowSeconds
+  ));
+
+  if (exists) {
+    return events;
+  }
+
+  return [...events, event].slice(-MAX_COCKPIT_EVENTS);
+}
+
+function selectRenderablePoints(points: Point3D[]) {
+  if (points.length <= MAX_RENDERED_POINT_CLOUD_POINTS) {
+    return points;
+  }
+
+  const step = Math.ceil(points.length / MAX_RENDERED_POINT_CLOUD_POINTS);
+  const selected = [];
+  for (let index = 0; index < points.length; index += step) {
+    selected.push(points[index]);
+  }
+  return selected;
+}
+
+function selectStoredLivePoints(points: Point3D[]) {
+  if (points.length <= MAX_STORED_LIVE_POINTS) {
+    return points;
+  }
+
+  const step = Math.ceil(points.length / MAX_STORED_LIVE_POINTS);
+  const selected = [];
+  for (let index = 0; index < points.length; index += step) {
+    selected.push(points[index]);
+  }
+  return selected;
+}
+
+function voxelKey(point: Point3D) {
+  return [
+    Math.round(point.x / LIDAR_MAP_VOXEL_SIZE),
+    Math.round(point.y / LIDAR_MAP_VOXEL_SIZE),
+    Math.round(point.z / LIDAR_MAP_VOXEL_SIZE),
+  ].join(":");
+}
+
+function mergeLidarMap(current: Point3D[], nextPoints: Point3D[]) {
+  if (nextPoints.length === 0) {
+    return current;
+  }
+
+  const map = new Map<string, Point3D>();
+  const confirmationCounts = new Map<string, number>();
+  for (const point of current) {
+    map.set(voxelKey(point), point);
+    const confirmationKey = mapConfirmationKey(point);
+    confirmationCounts.set(confirmationKey, Math.max(confirmationCounts.get(confirmationKey) || 0, point.seen || LIDAR_MAP_MIN_SEEN));
+  }
+
+  const step = Math.max(1, Math.ceil(nextPoints.length / 14000));
+  for (let index = 0; index < nextPoints.length; index += step) {
+    const point = nextPoints[index];
+    if (Number.isFinite(point.x) && Number.isFinite(point.y) && Number.isFinite(point.z)) {
+      const confirmationKey = mapConfirmationKey(point);
+      const seen = Math.min(12, (confirmationCounts.get(confirmationKey) || 0) + 1);
+      confirmationCounts.set(confirmationKey, seen);
+      if (seen >= LIDAR_MAP_MIN_SEEN) {
+        map.set(voxelKey(point), { ...point, seen });
+      }
+    }
+  }
+
+  const merged = [...map.values()];
+  if (merged.length <= MAX_LIDAR_MAP_POINTS) {
+    return merged;
+  }
+
+  const trimStep = Math.ceil(merged.length / MAX_LIDAR_MAP_POINTS);
+  return merged.filter((_, index) => index % trimStep === 0);
+}
+
+function isPointCloudTopic(topic: string) {
+  const lower = topic.toLowerCase();
+  return lower.includes("cloud") || lower.includes("points") || lower.includes("rslidar");
+}
+
+function pointCloudTopicPriority(topic: string) {
+  const lower = topic.toLowerCase();
+  if (lower.includes("helios") || lower.includes("rslidar") || lower.includes("m1")) {
+    return 3;
+  }
+  if (lower.includes("laser") || lower.includes("lidar")) {
+    return 2;
+  }
+  if (lower.includes("camera") || lower.includes("zed")) {
+    return 1;
+  }
+  return 0;
+}
+
+function chooseBestPointCloudTopic(pointClouds: Record<string, LidarCloudState>) {
+  return Object.entries(pointClouds)
+    .filter(([topic, state]) => isPointCloudTopic(topic) && state.points.length > 0)
+    .sort(([leftTopic, left], [rightTopic, right]) => {
+      const priorityDelta = pointCloudTopicPriority(rightTopic) - pointCloudTopicPriority(leftTopic);
+      return priorityDelta || right.points.length - left.points.length;
+    })[0]?.[0] || "";
 }
 
 function SparkChart({ title, value, unit, data, color }: {
@@ -251,8 +613,13 @@ function SparkChart({ title, value, unit, data, color }: {
 
 function CameraViewer({ camera }: { camera: CameraStatus }) {
   const [displaySrc, setDisplaySrc] = useState(camera.frameSrc || "");
+  const cameraSrc = camera.streamUrl || displaySrc;
 
   useEffect(() => {
+    if (camera.streamUrl) {
+      return;
+    }
+
     if (camera.frameSrc && camera.frameSrc !== displaySrc) {
       let cancelled = false;
       const image = new Image();
@@ -267,7 +634,7 @@ function CameraViewer({ camera }: { camera: CameraStatus }) {
         cancelled = true;
       };
     }
-  }, [camera.frameSrc, displaySrc]);
+  }, [camera.frameSrc, camera.streamUrl, displaySrc]);
 
   return (
     <section className="workspace-panel camera-workspace">
@@ -276,14 +643,14 @@ function CameraViewer({ camera }: { camera: CameraStatus }) {
         <strong>{camera.isActive ? "Live" : "Waiting"}</strong>
       </div>
       <div className="camera-stage">
-        {displaySrc ? (
-          <img src={displaySrc} alt="Recorded camera frame" />
+        {cameraSrc ? (
+          <img src={cameraSrc} alt="Live camera feed" />
         ) : (
           <div className="empty-state">Waiting for camera frame...</div>
         )}
       </div>
       <div className="metric-strip">
-        <span>{camera.resolution}</span>
+        <span>{camera.issue || camera.resolution}</span>
         <span>{camera.frameCount} frames</span>
         <span>{camera.lastTime || "--"}</span>
       </div>
@@ -317,25 +684,91 @@ function Lidar2D({ readings }: { readings: LidarReading[] }) {
   );
 }
 
-function Lidar3D({ readings, points, activeTopic, frameId, resolvedFrame }: { readings: LidarReading[]; points: Point3D[]; activeTopic?: string; frameId?: string; resolvedFrame?: string }) {
+function Lidar3D({
+  readings,
+  points,
+  activeTopic,
+  frameId,
+  resolvedFrame,
+  vehiclePose,
+  pointSize,
+  colorMode,
+  autoFit,
+  showDebug,
+}: {
+  readings: LidarReading[];
+  points: Point3D[];
+  activeTopic?: string;
+  frameId?: string;
+  resolvedFrame?: string;
+  vehiclePose?: TelemetryState["pose"];
+  pointSize: number;
+  colorMode: LidarColorMode;
+  autoFit: boolean;
+  showDebug: boolean;
+}) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const cloudRef = useRef<THREE.Points | null>(null);
+  const contourRef = useRef<THREE.LineSegments | null>(null);
+  const vehicleRef = useRef<THREE.Group | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
+  const pointTextureRef = useRef<THREE.Texture | undefined>(undefined);
+  const rawDisplayPoints = useMemo(() => points.length > 0 ? points : scanReadingsToPoints(readings), [points, readings]);
+  const hasPoints = points.length > 0;
+  const scenePoints = useMemo(() => {
+    return denoisePointCloud(rawDisplayPoints, frameId, resolvedFrame)
+      .filter((point) => isMeaningfulDisplayPoint(point, frameId, resolvedFrame, vehiclePose));
+  }, [frameId, rawDisplayPoints, resolvedFrame, vehiclePose]);
+  const displayPoints = useMemo(() => selectRenderablePoints(scenePoints), [scenePoints]);
+  const debugStats = useMemo<LidarDebugStats>(() => {
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+    let minZ = Infinity, maxZ = -Infinity;
+    let threeMinX = Infinity, threeMaxX = -Infinity;
+    let threeMinY = Infinity, threeMaxY = -Infinity;
+    let threeMinZ = Infinity, threeMaxZ = -Infinity;
 
-  function setView(position: THREE.Vector3, target = new THREE.Vector3(0, 0, 0)) {
+    for (const point of displayPoints) {
+      minX = Math.min(minX, point.x); maxX = Math.max(maxX, point.x);
+      minY = Math.min(minY, point.y); maxY = Math.max(maxY, point.y);
+      minZ = Math.min(minZ, point.z); maxZ = Math.max(maxZ, point.z);
+      const threePoint = pointToDisplayThree(point, frameId, resolvedFrame, vehiclePose);
+      threeMinX = Math.min(threeMinX, threePoint.x); threeMaxX = Math.max(threeMaxX, threePoint.x);
+      threeMinY = Math.min(threeMinY, threePoint.y); threeMaxY = Math.max(threeMaxY, threePoint.y);
+      threeMinZ = Math.min(threeMinZ, threePoint.z); threeMaxZ = Math.max(threeMaxZ, threePoint.z);
+    }
+
+    if (displayPoints.length === 0) {
+      minX = 0; maxX = 0; minY = 0; maxY = 0; minZ = 0; maxZ = 0;
+      threeMinX = 0; threeMaxX = 0; threeMinY = 0; threeMaxY = 0; threeMinZ = 0; threeMaxZ = 0;
+    }
+
+    return {
+      pointsCount: displayPoints.length,
+      sourcePointsCount: rawDisplayPoints.length,
+      min: { x: minX, y: minY, z: minZ },
+      max: { x: maxX, y: maxY, z: maxZ },
+      threeMin: { x: threeMinX, y: threeMinY, z: threeMinZ },
+      threeMax: { x: threeMaxX, y: threeMaxY, z: threeMaxZ },
+      firstPoints: displayPoints.slice(0, 5),
+    };
+  }, [displayPoints, frameId, rawDisplayPoints.length, resolvedFrame, vehiclePose]);
+
+  const setView = useCallback((position: THREE.Vector3, target = new THREE.Vector3(0, 0, 0), up = new THREE.Vector3(0, 1, 0)) => {
     const camera = cameraRef.current;
     const controls = controlsRef.current;
     if (!camera || !controls) {
       return;
     }
 
+    camera.up.copy(up);
     camera.position.copy(position);
     controls.target.copy(target);
     controls.update();
-  }
+  }, []);
 
   function zoomView(multiplier: number) {
     const camera = cameraRef.current;
@@ -351,24 +784,46 @@ function Lidar3D({ readings, points, activeTopic, frameId, resolvedFrame }: { re
     controls.update();
   }
 
-  function fitToCloud() {
+  const fitToCloud = useCallback(() => {
     const debugStats = cloudRef.current?.userData?.debugStats;
     const controls = controlsRef.current;
     if (!debugStats || !controls) return;
     
-    // Calculate center in ROS coordinates
-    const cx = (debugStats.min.x + debugStats.max.x) / 2;
-    const cy = (debugStats.min.y + debugStats.max.y) / 2;
-    const cz = (debugStats.min.z + debugStats.max.z) / 2;
-    
-    // Convert to Three.js coordinates
-    const tX = -cy;
-    const tY = cz;
-    const tZ = -cx;
-    
-    controls.target.set(tX, tY, tZ);
+    const target = new THREE.Vector3(
+      (debugStats.threeMin.x + debugStats.threeMax.x) / 2,
+      (debugStats.threeMin.y + debugStats.threeMax.y) / 2,
+      (debugStats.threeMin.z + debugStats.threeMax.z) / 2,
+    );
+    controls.target.copy(target);
     // Move camera to look at the center
-    setView(new THREE.Vector3(tX + 18, Math.max(tY + 15, 5), tZ + 28), controls.target);
+    const span = Math.max(
+      debugStats.threeMax.x - debugStats.threeMin.x,
+      debugStats.threeMax.y - debugStats.threeMin.y,
+      debugStats.threeMax.z - debugStats.threeMin.z,
+      18,
+    );
+    setView(new THREE.Vector3(target.x - span * 0.38, target.y + span * 0.32, target.z + span * 0.58), target);
+  }, [setView]);
+
+  function setTopView() {
+    const debugStats = cloudRef.current?.userData?.debugStats;
+    const target = new THREE.Vector3(0, 0, 0);
+    let height = 70;
+
+    if (debugStats) {
+      target.set(
+        (debugStats.threeMin.x + debugStats.threeMax.x) / 2,
+        (debugStats.threeMin.y + debugStats.threeMax.y) / 2,
+        (debugStats.threeMin.z + debugStats.threeMax.z) / 2,
+      );
+      height = Math.max(
+        debugStats.threeMax.x - debugStats.threeMin.x,
+        debugStats.threeMax.z - debugStats.threeMin.z,
+        35,
+      ) * 1.35;
+    }
+
+    setView(new THREE.Vector3(target.x, target.y + height, target.z + 0.01), target, new THREE.Vector3(0, 0, -1));
   }
 
   useEffect(() => {
@@ -381,7 +836,7 @@ function Lidar3D({ readings, points, activeTopic, frameId, resolvedFrame }: { re
     scene.background = new THREE.Color("#070a0c");
 
     const camera = new THREE.PerspectiveCamera(54, mount.clientWidth / mount.clientHeight, 0.1, 260);
-    camera.position.set(18, -42, 28);
+    camera.position.copy(DEFAULT_LIDAR_CAMERA_POSITION);
     camera.lookAt(0, 0, 0);
     cameraRef.current = camera;
 
@@ -389,6 +844,7 @@ function Lidar3D({ readings, points, activeTopic, frameId, resolvedFrame }: { re
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     mount.appendChild(renderer.domElement);
+    pointTextureRef.current = createPointSpriteTexture();
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -407,14 +863,16 @@ function Lidar3D({ readings, points, activeTopic, frameId, resolvedFrame }: { re
     };
     controlsRef.current = controls;
 
-    const grid = new THREE.GridHelper(80, 20, "#168eea", "#164569");
+    const grid = new THREE.GridHelper(90, 18, "#0e5e9c", "#10314a");
+    grid.material.transparent = true;
+    grid.material.opacity = 0.42;
     scene.add(grid);
-    scene.add(new THREE.AxesHelper(10));
+    scene.add(new THREE.AxesHelper(5));
 
     const ringMaterial = new THREE.LineBasicMaterial({
-      color: "#164569",
+      color: "#0f4e75",
       transparent: true,
-      opacity: 0.7,
+      opacity: 0.38,
     });
     [10, 20, 30, 40].forEach((radius) => {
       const ringPoints = Array.from({ length: 96 }, (_, index) => {
@@ -460,14 +918,22 @@ function Lidar3D({ readings, points, activeTopic, frameId, resolvedFrame }: { re
       wheel.rotation.z = Math.PI / 2;
       vehicle.add(wheel);
     });
+    vehicle.scale.setScalar(0.68);
     scene.add(vehicle);
+    vehicleRef.current = vehicle;
 
     sceneRef.current = scene;
     rendererRef.current = renderer;
 
     let frame = 0;
-    const render = () => {
+    let lastRenderMs = 0;
+    const minRenderIntervalMs = 1000 / LIDAR_RENDER_FPS;
+    const render = (now = 0) => {
       frame = requestAnimationFrame(render);
+      if (now - lastRenderMs < minRenderIntervalMs) {
+        return;
+      }
+      lastRenderMs = now;
       controls.update();
       renderer.render(scene, camera);
     };
@@ -488,11 +954,22 @@ function Lidar3D({ readings, points, activeTopic, frameId, resolvedFrame }: { re
       cancelAnimationFrame(frame);
       window.removeEventListener("resize", handleResize);
       controls.dispose();
+      pointTextureRef.current?.dispose();
       renderer.dispose();
       mount.removeChild(renderer.domElement);
       cameraRef.current = null;
+      vehicleRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    const vehicle = vehicleRef.current;
+    if (!vehicle) {
+      return;
+    }
+
+    vehicle.position.set(0, 0, 0);
+  }, [frameId, resolvedFrame, vehiclePose]);
 
   useEffect(() => {
     const scene = sceneRef.current;
@@ -510,99 +987,154 @@ function Lidar3D({ readings, points, activeTopic, frameId, resolvedFrame }: { re
         material.dispose();
       }
     }
-
-    const displayPoints = points.length > 0 ? points : scanReadingsToPoints(readings);
+    if (contourRef.current) {
+      scene.remove(contourRef.current);
+      contourRef.current.geometry.dispose();
+      const material = contourRef.current.material;
+      if (Array.isArray(material)) {
+        material.forEach((item) => item.dispose());
+      } else {
+        material.dispose();
+      }
+    }
 
     const geometry = new THREE.BufferGeometry();
     const positions = new Float32Array(displayPoints.length * 3);
     const colors = new Float32Array(displayPoints.length * 3);
     const color = new THREE.Color();
-
-    let minX = Infinity, maxX = -Infinity;
-    let minY = Infinity, maxY = -Infinity;
-    let minZ = Infinity, maxZ = -Infinity;
+    const threePoints: Vector3[] = [];
+    const pointColors: Vector3[] = [];
 
     displayPoints.forEach((point, index) => {
-      // ROS coordinate system: X forward, Y left, Z up
-      // Three.js coordinate system: X right, Y up, Z backward (camera looks down -Z)
-      // Assuming vehicle faces -Z in Three.js:
-      // Three.X = -ROS.Y (Right)
-      // Three.Y = ROS.Z (Up)
-      // Three.Z = -ROS.X (Backward)
-      positions[index * 3] = -point.y;
-      positions[index * 3 + 1] = point.z;
-      positions[index * 3 + 2] = -point.x;
+      const threePoint = pointToDisplayThree(point, frameId, resolvedFrame, vehiclePose);
+      threePoints.push(threePoint);
+      positions[index * 3] = threePoint.x;
+      positions[index * 3 + 1] = threePoint.y;
+      positions[index * 3 + 2] = threePoint.z;
 
-      minX = Math.min(minX, point.x); maxX = Math.max(maxX, point.x);
-      minY = Math.min(minY, point.y); maxY = Math.max(maxY, point.y);
-      minZ = Math.min(minZ, point.z); maxZ = Math.max(maxZ, point.z);
-
-      if (typeof point.intensity === "number" && point.intensity > 0) {
-        // Map intensity 0-255 to color (e.g., blue to red)
-        const normalizedInt = Math.max(0, Math.min(1, point.intensity / 255));
-        color.setHSL(0.66 - normalizedInt * 0.66, 1, 0.55);
+      if (colorMode === "intensity" && typeof point.intensity === "number" && point.intensity > 0) {
+        const normalizedInt = Math.max(0, Math.min(1, point.intensity > 255 ? point.intensity / 4096 : point.intensity / 255));
+        setTurboColor(color, normalizedInt);
+      } else if (colorMode === "height") {
+        const height = (threePoint.y - HEIGHT_COLOR_MIN) / (HEIGHT_COLOR_MAX - HEIGHT_COLOR_MIN);
+        setTurboColor(color, height);
       } else {
-        const distance = Math.hypot(point.x, point.y, point.z);
-        const normalized = Math.max(0, Math.min(1, distance / 55));
-        const height = Math.max(0, Math.min(1, (point.z + 1.5) / 5));
-        color.setHSL(0.62 - normalized * 0.42 - height * 0.12, 1, 0.58);
+        const distance = Math.hypot(threePoint.x, threePoint.y, threePoint.z);
+        const normalized = Math.max(0, Math.min(1, distance / 45));
+        setTurboColor(color, 1 - normalized);
       }
       
       colors[index * 3] = color.r;
       colors[index * 3 + 1] = color.g;
       colors[index * 3 + 2] = color.b;
+      pointColors.push({ x: color.r, y: color.g, z: color.b });
     });
 
     geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
 
     const material = new THREE.PointsMaterial({
-      size: points.length > 0 ? 0.16 : 0.28,
-      opacity: 0.92,
+      alphaTest: 0.08,
+      map: pointTextureRef.current,
+      size: points.length > 0 ? Math.max(pointSize, 0.2) : Math.max(pointSize, 0.24),
+      opacity: 0.98,
       transparent: true,
       vertexColors: true,
+      blending: THREE.AdditiveBlending,
+      depthTest: false,
       sizeAttenuation: true,
     });
 
     const cloud = new THREE.Points(geometry, material);
-    cloud.userData = {
-      debugStats: {
-        pointsCount: displayPoints.length,
-        min: { x: minX, y: minY, z: minZ },
-        max: { x: maxX, y: maxY, z: maxZ },
-        firstPoints: displayPoints.slice(0, 5),
-      }
-    };
+    cloud.userData = { debugStats };
+    cloud.renderOrder = 10;
     cloudRef.current = cloud;
     scene.add(cloud);
-  }, [points, readings]);
 
-  const debugStats = cloudRef.current?.userData?.debugStats;
+    const contourBuckets = new Map<number, number[]>();
+    threePoints.forEach((point, index) => {
+      const bucket = Math.round(Number(point.y || 0) / 0.22);
+      const items = contourBuckets.get(bucket) || [];
+      items.push(index);
+      contourBuckets.set(bucket, items);
+    });
+
+    const linePositions: number[] = [];
+    const lineColors: number[] = [];
+    for (const indices of contourBuckets.values()) {
+      if (indices.length < 3) {
+        continue;
+      }
+
+      indices.sort((left, right) => Math.atan2(threePoints[left].z || 0, threePoints[left].x || 0) - Math.atan2(threePoints[right].z || 0, threePoints[right].x || 0));
+
+      for (let i = 1; i < indices.length; i += 1) {
+        const left = threePoints[indices[i - 1]];
+        const right = threePoints[indices[i]];
+        const dx = Number(left.x || 0) - Number(right.x || 0);
+        const dy = Number(left.y || 0) - Number(right.y || 0);
+        const dz = Number(left.z || 0) - Number(right.z || 0);
+        const distance = Math.hypot(dx, dy, dz);
+        if (distance <= 2.2 && distance >= 0.05) {
+          linePositions.push(Number(left.x || 0), Number(left.y || 0), Number(left.z || 0), Number(right.x || 0), Number(right.y || 0), Number(right.z || 0));
+          const leftColor = pointColors[indices[i - 1]];
+          const rightColor = pointColors[indices[i]];
+          lineColors.push(leftColor.x || 0, leftColor.y || 0, leftColor.z || 0, rightColor.x || 0, rightColor.y || 0, rightColor.z || 0);
+        }
+      }
+    }
+
+    if (ENABLE_LIDAR_CONTOURS && linePositions.length > 0) {
+      const contourGeometry = new THREE.BufferGeometry();
+      contourGeometry.setAttribute("position", new THREE.Float32BufferAttribute(linePositions, 3));
+      contourGeometry.setAttribute("color", new THREE.Float32BufferAttribute(lineColors, 3));
+      const contourMaterial = new THREE.LineBasicMaterial({
+        blending: THREE.AdditiveBlending,
+        depthTest: true,
+        opacity: 0.72,
+        transparent: true,
+        vertexColors: true,
+      });
+      const contours = new THREE.LineSegments(contourGeometry, contourMaterial);
+      contours.renderOrder = 9;
+      contourRef.current = contours;
+      scene.add(contours);
+    }
+  }, [colorMode, debugStats, displayPoints, frameId, pointSize, points.length, resolvedFrame, vehiclePose]);
+
+  useEffect(() => {
+    if (!autoFit || !hasPoints) {
+      return;
+    }
+
+    const timer = window.setTimeout(fitToCloud, 120);
+    return () => window.clearTimeout(timer);
+  }, [activeTopic, autoFit, fitToCloud, hasPoints]);
 
   return (
     <div className="lidar-3d-stage" ref={mountRef}>
-      {debugStats && (
-        <div style={{ position: "absolute", top: 10, left: 10, background: "rgba(0,0,0,0.85)", padding: "10px 14px", borderRadius: 6, fontSize: "0.72rem", pointerEvents: "none", zIndex: 100, color: "#c9d8f0", whiteSpace: "pre-wrap", lineHeight: 1.6, fontFamily: "monospace" }}>
-          <strong style={{ color: "#38bdf8" }}>Lidar Debug</strong><br />
+      {showDebug && debugStats && (
+        <div className="lidar-debug-card">
+          <strong>Lidar Debug</strong><br />
           Topic: <span style={{ color: "#fbbf24" }}>{activeTopic || "None"}</span><br />
           Sensor Frame: {frameId || "unknown"}<br />
           Render Frame: {resolvedFrame || frameId || "raw sensor frame (no TF applied)"}<br />
-          Valid Points: {debugStats.pointsCount.toLocaleString()}<br />
+          Valid Points: {debugStats.pointsCount.toLocaleString()} / {debugStats.sourcePointsCount.toLocaleString()}<br />
           Min XYZ: {debugStats.min.x.toFixed(2)}, {debugStats.min.y.toFixed(2)}, {debugStats.min.z.toFixed(2)}<br />
           Max XYZ: {debugStats.max.x.toFixed(2)}, {debugStats.max.y.toFixed(2)}, {debugStats.max.z.toFixed(2)}<br />
           First 5 Points:<br />
-          {debugStats.firstPoints.map((p: any, i: number) => `[${i}] x:${p.x.toFixed(2)} y:${p.y.toFixed(2)} z:${p.z.toFixed(2)} int:${p.intensity?.toFixed(1) ?? 0}`).join("\n")}
+          {debugStats.firstPoints.map((point, index) => `[${index}] x:${point.x.toFixed(2)} y:${point.y.toFixed(2)} z:${point.z.toFixed(2)} int:${point.intensity?.toFixed(1) ?? 0}`).join("\n")}
         </div>
       )}
       <div className="lidar-view-controls" aria-label="LiDAR viewport controls">
         <button type="button" onClick={() => zoomView(0.75)} title="Zoom in">+</button>
         <button type="button" onClick={() => zoomView(1.35)} title="Zoom out">-</button>
         <button type="button" onClick={fitToCloud} title="Fit to point cloud bounds">Fit</button>
-        <button type="button" onClick={() => setView(new THREE.Vector3(0, 0.1, 58))} title="Top view">Top</button>
-        <button type="button" onClick={() => setView(new THREE.Vector3(18, -42, 28))} title="Reset view">Reset</button>
+        <button type="button" onClick={setTopView} title="Top view">Top</button>
+        <button type="button" onClick={() => setView(DEFAULT_LIDAR_CAMERA_POSITION.clone())} title="Reset view">Reset</button>
       </div>
       <div className="lidar-hud">
-        <span>base_link</span>
+        <span>{resolvedFrame || frameId || "raw frame"}</span>
         <span>left orbit / right pan / wheel zoom</span>
         <span>{points.length.toLocaleString()} pts</span>
       </div>
@@ -610,11 +1142,40 @@ function Lidar3D({ readings, points, activeTopic, frameId, resolvedFrame }: { re
   );
 }
 
-function LidarWorkspace({ readings, pointClouds, activeTopic, setActiveTopic }: { readings: LidarReading[]; pointClouds: Record<string, { points: Point3D[], frameId: string, resolvedFrame?: string }>; activeTopic: string; setActiveTopic: (t: string) => void }) {
+function LidarWorkspace({
+  readings,
+  pointClouds,
+  activeTopic,
+  setActiveTopic,
+  vehiclePose,
+}: {
+  readings: LidarReading[];
+  pointClouds: Record<string, LidarCloudState>;
+  activeTopic: string;
+  setActiveTopic: (t: string) => void;
+  vehiclePose?: TelemetryState["pose"];
+}) {
   const [mode, setMode] = useState<LidarMode>("3d");
+  const [cloudView, setCloudView] = useState<"live" | "map">("map");
+  const [pointSize, setPointSize] = useState(0.24);
+  const [colorMode, setColorMode] = useState<LidarColorMode>("height");
+  const [autoFit, setAutoFit] = useState(true);
+  const [showDebug, setShowDebug] = useState(false);
   const availableTopics = Object.keys(pointClouds).sort();
-  const activeData = pointClouds[activeTopic] || { points: [], frameId: "", resolvedFrame: "" };
-  const points = activeData.points;
+  const bestTopic = useMemo(() => chooseBestPointCloudTopic(pointClouds), [pointClouds]);
+  useEffect(() => {
+    if (!bestTopic) {
+      return;
+    }
+
+    const activePoints = pointClouds[activeTopic]?.points.length || 0;
+    const bestPoints = pointClouds[bestTopic]?.points.length || 0;
+    if (!activeTopic || activeTopic.toLowerCase().includes("scan") || bestPoints > activePoints * 2) {
+      setActiveTopic(bestTopic);
+    }
+  }, [activeTopic, bestTopic, pointClouds, setActiveTopic]);
+  const activeData = pointClouds[activeTopic] || { points: [], mapPoints: [], frameId: "", resolvedFrame: "" };
+  const points = cloudView === "map" ? activeData.mapPoints : activeData.points;
 
   return (
     <section className="workspace-panel lidar-workspace">
@@ -641,11 +1202,64 @@ function LidarWorkspace({ readings, pointClouds, activeTopic, setActiveTopic }: 
           </button>
         </div>
       </div>
-      {mode === "3d" ? <Lidar3D readings={readings} points={points} activeTopic={activeTopic} frameId={activeData.frameId} resolvedFrame={activeData.resolvedFrame} /> : <Lidar2D readings={readings} />}
+      {mode === "3d" && (
+        <div className="lidar-tool-strip">
+          <div className="segmented-control compact" aria-label="Point cloud view">
+            <button type="button" className={cloudView === "live" ? "selected" : ""} onClick={() => setCloudView("live")}>
+              Live
+            </button>
+            <button type="button" className={cloudView === "map" ? "selected" : ""} onClick={() => setCloudView("map")}>
+              Map
+            </button>
+          </div>
+          <label>
+            Color
+            <select value={colorMode} onChange={(event) => setColorMode(event.currentTarget.value as LidarColorMode)}>
+              <option value="intensity">Intensity</option>
+              <option value="height">Height</option>
+              <option value="distance">Distance</option>
+            </select>
+          </label>
+          <label>
+            Size
+            <input
+              max="0.32"
+              min="0.04"
+              step="0.01"
+              type="range"
+              value={pointSize}
+              onChange={(event) => setPointSize(Number(event.currentTarget.value))}
+            />
+          </label>
+          <label className="toggle-row">
+            <input checked={autoFit} type="checkbox" onChange={(event) => setAutoFit(event.currentTarget.checked)} />
+            Auto Fit
+          </label>
+          <label className="toggle-row">
+            <input checked={showDebug} type="checkbox" onChange={(event) => setShowDebug(event.currentTarget.checked)} />
+            Debug
+          </label>
+        </div>
+      )}
+      {mode === "3d" ? (
+        <Lidar3D
+          readings={readings}
+          points={points}
+          activeTopic={activeTopic}
+          frameId={activeData.frameId}
+          resolvedFrame={activeData.resolvedFrame}
+          vehiclePose={vehiclePose}
+          pointSize={pointSize}
+          colorMode={colorMode}
+          autoFit={autoFit}
+          showDebug={showDebug}
+        />
+      ) : <Lidar2D readings={readings} />}
       <div className="metric-strip">
         <span>{readings.length} scan points</span>
-        <span>{points.length.toLocaleString()} cloud points</span>
-        <span>{mode.toUpperCase()} view</span>
+        <span>{activeData.points.length.toLocaleString()} live pts</span>
+        <span>{activeData.mapPoints.length.toLocaleString()} map pts</span>
+        <span>{mode.toUpperCase()} {cloudView}</span>
       </div>
     </section>
   );
@@ -655,25 +1269,16 @@ function MapPanel({ gps, speed }: { gps: GpsFix; speed: number }) {
   const lat = Number(gps.latitude);
   const lon = Number(gps.longitude);
   const hasFix = Number.isFinite(lat) && Number.isFinite(lon);
-  const [mapCenter, setMapCenter] = useState<GpsTrailPoint | undefined>();
-
-  useEffect(() => {
+  const mapCenter = useMemo<GpsTrailPoint | undefined>(() => {
     if (!hasFix) {
-      return;
+      return undefined;
     }
 
-    const timer = window.setTimeout(() => {
-      setMapCenter((current) => {
-        if (!current) {
-          return { latitude: lat, longitude: lon };
-        }
-
-        const movedEnough = Math.hypot(current.latitude - lat, current.longitude - lon) > 0.0025;
-        return movedEnough ? { latitude: lat, longitude: lon } : current;
-      });
-    }, 0);
-
-    return () => window.clearTimeout(timer);
+    const snap = 0.0025;
+    return {
+      latitude: Math.round(lat / snap) * snap,
+      longitude: Math.round(lon / snap) * snap,
+    };
   }, [hasFix, lat, lon]);
 
   const mapSrc = mapCenter
@@ -723,7 +1328,7 @@ function App() {
   const [mode, setMode] = useState<WorkspaceMode>("perception");
   const [backendConnected, setBackendConnected] = useState(false);
   const [lidarReadings, setLidarReadings] = useState<LidarReading[]>([]);
-  const [pointClouds, setPointClouds] = useState<Record<string, { points: Point3D[], frameId: string, resolvedFrame?: string }>>({});
+  const [pointClouds, setPointClouds] = useState<Record<string, LidarCloudState>>({});
   const [activePointCloudTopic, setActivePointCloudTopic] = useState<string>("");
   const [camera, setCamera] = useState<CameraStatus>({
     topic: "/zed2i/zed_node/rgb/image_rect_color/compressed",
@@ -744,6 +1349,9 @@ function App() {
   const [telemetry, setTelemetry] = useState<TelemetryState>(emptyTelemetry);
   const [cockpitEvents, setCockpitEvents] = useState<CockpitEvent[]>([]);
   const [latestFrame, setLatestFrame] = useState<LatestFrame>();
+  const [pendingSeekRatio, setPendingSeekRatio] = useState<number | undefined>();
+  const [bagFiles, setBagFiles] = useState<BagFileOption[]>([]);
+  const [selectedBagPath, setSelectedBagPath] = useState("");
   const [series, setSeries] = useState({
     acceleration: [] as SeriesPoint[],
     angularVelocity: [] as SeriesPoint[],
@@ -751,24 +1359,144 @@ function App() {
     magneticField: [] as SeriesPoint[],
   });
   const socketRef = useRef<WebSocket | null>(null);
+  const pointCloudsRef = useRef<Record<string, LidarCloudState>>({});
+  const pendingPointCloudsRef = useRef<Map<string, PendingPointCloudPacket>>(new Map());
+  const pointCloudFlushTimerRef = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    pointCloudsRef.current = pointClouds;
+  }, [pointClouds]);
 
   useEffect(() => {
     let reconnectTimer: number | undefined;
     let shouldReconnect = true;
 
+    function scheduleReconnect() {
+      if (!shouldReconnect || reconnectTimer) {
+        return;
+      }
+
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = undefined;
+        connect();
+      }, 900);
+    }
+
+    function flushPointClouds() {
+      pointCloudFlushTimerRef.current = undefined;
+      const pending = [...pendingPointCloudsRef.current.values()];
+      pendingPointCloudsRef.current.clear();
+      if (pending.length === 0) {
+        return;
+      }
+
+      setPointClouds((prev) => {
+        const next = { ...prev };
+        for (const packet of pending) {
+          const cleanPoints = denoisePointCloud(packet.points, packet.frameId, packet.resolvedFrame);
+          const livePoints = selectStoredLivePoints(cleanPoints);
+          const previous = next[packet.topic] || { points: [], mapPoints: [], frameId: "", resolvedFrame: "" };
+          const packetFrame = packet.resolvedFrame || packet.frameId || "";
+          const isStableMapFrame = usesWorldFrame(packet.frameId, packet.resolvedFrame);
+          const frameChanged = previous.resolvedFrame && packetFrame && previous.resolvedFrame !== packetFrame;
+          const previousMapPoints = previous.filterVersion === LIDAR_FILTER_VERSION && !frameChanged ? previous.mapPoints : [];
+          next[packet.topic] = {
+            points: livePoints,
+            mapPoints: isStableMapFrame ? mergeLidarMap(previousMapPoints, livePoints) : previousMapPoints,
+            frameId: packet.frameId || previous.frameId || "",
+            resolvedFrame: packet.resolvedFrame || previous.resolvedFrame || "",
+            lastTime: packet.time || previous.lastTime,
+            filterVersion: LIDAR_FILTER_VERSION,
+          };
+        }
+
+        // Cross-topic cap: when multiple point-cloud topics accumulate, total
+        // map memory is N * MAX_LIDAR_MAP_POINTS. Scale every topic down
+        // proportionally so the total stays within MAX_TOTAL_MAP_POINTS.
+        const totalMapPoints = Object.values(next).reduce((sum, s) => sum + s.mapPoints.length, 0);
+        if (totalMapPoints > MAX_TOTAL_MAP_POINTS) {
+          const ratio = MAX_TOTAL_MAP_POINTS / totalMapPoints;
+          for (const key of Object.keys(next)) {
+            const s = next[key];
+            if (s.mapPoints.length === 0) continue;
+            const cap = Math.max(1, Math.floor(s.mapPoints.length * ratio));
+            const step = Math.ceil(s.mapPoints.length / cap);
+            next[key] = { ...s, mapPoints: s.mapPoints.filter((_, i) => i % step === 0) };
+          }
+        }
+
+        return next;
+      });
+    }
+
+    function schedulePointCloudFlush() {
+      if (pointCloudFlushTimerRef.current) {
+        return;
+      }
+
+      pointCloudFlushTimerRef.current = window.setTimeout(flushPointClouds, POINT_CLOUD_FLUSH_MS);
+    }
+
+    function resetPlaybackState() {
+      pendingPointCloudsRef.current.clear();
+      if (pointCloudFlushTimerRef.current) {
+        window.clearTimeout(pointCloudFlushTimerRef.current);
+        pointCloudFlushTimerRef.current = undefined;
+      }
+      setPendingSeekRatio(undefined);
+      setLidarReadings([]);
+      setPointClouds({});
+      setActivePointCloudTopic("");
+      setCockpitEvents([]);
+      setLatestFrame(undefined);
+      setTelemetry(emptyTelemetry);
+      setSeries({
+        acceleration: [],
+        angularVelocity: [],
+        speed: [],
+        magneticField: [],
+      });
+      setCamera((prev) => ({
+        ...prev,
+        isActive: false,
+        frameSrc: "",
+        resolution: "Waiting",
+        fps: 0,
+        frameCount: 0,
+        lastTime: "",
+      }));
+    }
+
     function connect() {
+      const existingSocket = socketRef.current;
+      if (existingSocket?.readyState === WebSocket.OPEN || existingSocket?.readyState === WebSocket.CONNECTING) {
+        return;
+      }
+
       const socket = new WebSocket("ws://localhost:4000");
       socketRef.current = socket;
 
       socket.addEventListener("open", () => {
         setBackendConnected(true);
         socket.send(JSON.stringify({ type: "start-lidar" }));
+        socket.send(JSON.stringify({ type: "list-bags" }));
       });
 
       socket.addEventListener("message", (event) => {
       try {
         const packet = JSON.parse(event.data);
         const label = timeLabel(packet.time);
+
+        if (packet.type === "bag-list") {
+          const files = Array.isArray(packet.files) ? packet.files : [];
+          setBagFiles(files);
+          setSelectedBagPath(packet.selectedPath || files[0]?.path || "");
+        }
+
+        if (packet.type === "reset-playback") {
+          resetPlaybackState();
+          setSelectedBagPath(packet.path || "");
+        }
 
         if (packet.type === "scan" && Array.isArray(packet.readings)) {
           const t = packet.topic || "scan";
@@ -777,6 +1505,7 @@ function App() {
             ...prev,
             [t]: {
               points: appendLidarHistory(prev[t]?.points || [], scanReadingsToPoints(packet.readings)),
+              mapPoints: prev[t]?.mapPoints || [],
               frameId: packet.frameId || "laser"
             }
           }));
@@ -795,17 +1524,24 @@ function App() {
             setLidarReadings(packet.readings);
           }
           if (Array.isArray(packet.points)) {
-            setPointClouds((prev) => ({
-              ...prev,
-              [t]: {
-                points: isDensePointCloud(t, packet.points)
-                  ? packet.points
-                  : appendLidarHistory(prev[t]?.points || [], packet.points),
-                frameId: packet.frameId || "",
-                resolvedFrame: packet.resolvedFrame || "",
+            pendingPointCloudsRef.current.set(t, {
+              topic: t,
+              points: packet.points,
+              readings: packet.readings,
+              frameId: packet.frameId || "",
+              resolvedFrame: packet.resolvedFrame || "",
+              time: packet.time,
+            });
+            schedulePointCloudFlush();
+            setActivePointCloudTopic((prev) => {
+              if (!prev || prev.toLowerCase().includes("scan")) {
+                return t;
               }
-            }));
-            setActivePointCloudTopic((prev) => prev || t);
+
+              const currentPoints = pointCloudsRef.current[prev]?.points.length || 0;
+              const incomingPoints = packet.points.length || 0;
+              return incomingPoints > currentPoints * 2 ? t : prev;
+            });
           }
           setLatestFrame({
             topic: t,
@@ -819,10 +1555,12 @@ function App() {
           setCamera((prev) => ({
             topic: packet.topic || prev.topic,
             isActive: true,
-            frameSrc: packet.src,
+            frameSrc: packet.src || prev.frameSrc,
+            streamUrl: packet.streamUrl || prev.streamUrl,
             resolution: packet.resolution || prev.resolution,
             fps: Number(packet.fps || prev.fps),
             frameCount: prev.frameCount + 1,
+            issue: packet.issue || "",
             lastTime: packet.time,
           }));
           setLatestFrame({
@@ -830,6 +1568,24 @@ function App() {
             time: packet.time,
             messageType: "Camera",
             preview: packet.resolution || "JPEG frame",
+          });
+        }
+
+        if (packet.type === "camera-stream" && typeof packet.streamUrl === "string") {
+          setCamera((prev) => ({
+            ...prev,
+            topic: packet.topic || prev.topic,
+            isActive: true,
+            streamUrl: packet.streamUrl,
+            resolution: packet.resolution || "Stream",
+            issue: "",
+            lastTime: packet.time || prev.lastTime,
+          }));
+          setLatestFrame({
+            topic: packet.topic || "camera",
+            time: packet.time,
+            messageType: "Camera Stream",
+            preview: packet.streamUrl,
           });
         }
 
@@ -850,8 +1606,8 @@ function App() {
             const oldSpeed = prev.speed;
 
             if (accMag > 12 && oldAccMag <= 12) {
-              setCockpitEvents((events) => [
-                ...events,
+              setCockpitEvents((events) => appendCockpitEvent(
+                events,
                 {
                   id: `acc-${packet.time}-${Math.random()}`,
                   timestamp: timeStringToSeconds(packet.time),
@@ -861,12 +1617,12 @@ function App() {
                   title: "High Acceleration Spike",
                   description: `Acceleration reached ${formatNumber(accMag)} m/s²`,
                 }
-              ]);
+              ));
             }
 
             if (oldSpeed > 2 && speed < 0.5) {
-              setCockpitEvents((events) => [
-                ...events,
+              setCockpitEvents((events) => appendCockpitEvent(
+                events,
                 {
                   id: `stop-${packet.time}-${Math.random()}`,
                   timestamp: timeStringToSeconds(packet.time),
@@ -876,7 +1632,7 @@ function App() {
                   title: "Sudden Stop",
                   description: `Speed dropped rapidly from ${formatNumber(oldSpeed)} to ${formatNumber(speed)} m/s`,
                 }
-              ]);
+              ));
             }
 
             setSeries((current) => ({
@@ -936,13 +1692,16 @@ function App() {
 
       socket.addEventListener("close", () => {
         setBackendConnected(false);
-        if (shouldReconnect) {
-          reconnectTimer = window.setTimeout(connect, 900);
+        if (socketRef.current === socket) {
+          socketRef.current = null;
         }
+        scheduleReconnect();
       });
 
       socket.addEventListener("error", () => {
         setBackendConnected(false);
+        socket.close();
+        scheduleReconnect();
       });
     }
 
@@ -953,12 +1712,16 @@ function App() {
       if (reconnectTimer) {
         window.clearTimeout(reconnectTimer);
       }
+      if (pointCloudFlushTimerRef.current) {
+        window.clearTimeout(pointCloudFlushTimerRef.current);
+      }
       socketRef.current?.close();
     };
   }, []);
 
   const decisionLogEntries: DecisionLogEntry[] = useMemo(() => {
     return cockpitEvents.map((e) => ({
+      id: e.id,
       time: e.timeLabel,
       source: e.source.toUpperCase(),
       message: `${e.title}: ${e.description}`,
@@ -968,7 +1731,7 @@ function App() {
   const bagName = useMemo(() => bagStatus.path.split("/").at(-1) || "2025-07-21-16-54-43.bag", [bagStatus.path]);
   const currentSeconds = Math.max(0, timeStringToSeconds(bagStatus.currentTime) - timeStringToSeconds(bagStatus.startTime));
   const durationSeconds = Number(bagStatus.durationSeconds || 0);
-  const playbackRatio = durationSeconds > 0 ? Math.min(currentSeconds / durationSeconds, 1) : 0;
+  const playbackRatio = pendingSeekRatio ?? (durationSeconds > 0 ? Math.min(currentSeconds / durationSeconds, 1) : 0);
 
   function sendPlaybackCommand(type: "start-lidar" | "stop-lidar") {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
@@ -978,9 +1741,34 @@ function App() {
 
   function seekPlayback(ratio: number) {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
+      setPendingSeekRatio(undefined);
+      pendingPointCloudsRef.current.clear();
+      if (pointCloudFlushTimerRef.current) {
+        window.clearTimeout(pointCloudFlushTimerRef.current);
+        pointCloudFlushTimerRef.current = undefined;
+      }
       setPointClouds({});
       setLidarReadings([]);
       socketRef.current.send(JSON.stringify({ type: "seek-playback", ratio }));
+    }
+  }
+
+  function loadBag(path: string) {
+    if (socketRef.current?.readyState === WebSocket.OPEN && path) {
+      setSelectedBagPath(path);
+      socketRef.current.send(JSON.stringify({ type: "load-bag", path }));
+    }
+  }
+
+  function previewSeek(ratio: number) {
+    const clampedRatio = Math.max(0, Math.min(1, ratio));
+    setPendingSeekRatio(clampedRatio);
+  }
+
+  function commitPreviewSeek(ratio?: number) {
+    const targetRatio = typeof ratio === "number" ? ratio : pendingSeekRatio;
+    if (typeof targetRatio === "number") {
+      seekPlayback(targetRatio);
     }
   }
 
@@ -991,6 +1779,18 @@ function App() {
           <span className="app-kicker">MapPilot Cockpit</span>
           <h1>{bagName}</h1>
         </div>
+        <label className="bag-picker">
+          <span>Bag</span>
+          <select value={selectedBagPath} onChange={(event) => loadBag(event.currentTarget.value)}>
+            {bagFiles.length === 0 ? (
+              <option value="">No .bag files found</option>
+            ) : bagFiles.map((file) => (
+              <option key={file.path} value={file.path}>
+                {file.name} ({formatFileSize(file.size)})
+              </option>
+            ))}
+          </select>
+        </label>
         <div className="mode-switcher">
           <button type="button" className={mode === "perception" ? "active" : ""} onClick={() => setMode("perception")}>Perception</button>
           <button type="button" className={mode === "control" ? "active" : ""} onClick={() => setMode("control")}>Control</button>
@@ -1020,6 +1820,7 @@ function App() {
             pointClouds={pointClouds}
             activeTopic={activePointCloudTopic}
             setActiveTopic={setActivePointCloudTopic}
+            vehiclePose={telemetry.pose}
           />
           <MapPanel gps={telemetry.gps} speed={telemetry.speed} />
           <DecisionLogPanel entries={decisionLogEntries} />
@@ -1078,8 +1879,10 @@ function App() {
             min="0"
             type="range"
             value={Math.round(playbackRatio * 1000)}
-            onChange={(event) => seekPlayback(Number(event.currentTarget.value) / 1000)}
-            onInput={(event) => seekPlayback(Number(event.currentTarget.value) / 1000)}
+            onInput={(event) => previewSeek(Number(event.currentTarget.value) / 1000)}
+            onBlur={(event) => commitPreviewSeek(Number(event.currentTarget.value) / 1000)}
+            onKeyUp={(event) => commitPreviewSeek(Number(event.currentTarget.value) / 1000)}
+            onPointerUp={(event) => commitPreviewSeek(Number(event.currentTarget.value) / 1000)}
           />
           {durationSeconds > 0 && cockpitEvents.map((event) => {
             const ratio = (event.timestamp - timeStringToSeconds(bagStatus.startTime)) / durationSeconds;
