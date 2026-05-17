@@ -27,6 +27,17 @@ const ROSBAG_TOPIC_HINTS = [
   "navsat",
   "gps",
   "imu",
+  "velocity",
+  "speed",
+  "steer",
+  "eps",
+  "brake",
+  "ehb",
+  "throttle",
+  "motor",
+  "autonomous",
+  "rc_unit",
+  "vcu",
   "/tf",
 ];
 
@@ -45,12 +56,24 @@ const DEFAULT_ROSBAG_TOPIC_PATTERNS = [
   /\/zed2i\/zed_node\/odom$/i,
   /\/navsatfix$/i,
   /\/imu\/data$/i,
+  /\/VelocityInformation$/i,
+  /\/eps_response$/i,
+  /\/EHB_BrakingResponse$/i,
+  /\/fb_motor_driver_report$/i,
+  /\/rc_unit_report$/i,
+  /\/autonomous_report$/i,
+  /\/throttle_control$/i,
+  /\/vcu_eps_control$/i,
+  /\/vcu_ehb_control$/i,
+  /\/steer_control$/i,
+  /\/brake_control$/i,
+  /\/autonomous_mode_selection$/i,
   /^\/tf$/i,
   /^\/tf_static$/i,
 ];
 
-function readExportFile() {
-  const absolutePath = path.resolve(process.cwd(), BAG_EXPORT_PATH);
+function readExportFile(filePath = BAG_EXPORT_PATH) {
+  const absolutePath = path.resolve(process.cwd(), filePath);
   if (!fs.existsSync(absolutePath)) {
     console.warn(`Bag export not found at ${absolutePath}`);
     return { absolutePath, frames: [] };
@@ -382,6 +405,31 @@ function timeToSeconds(time) {
   return Number(time.sec) + Number(time.nsec || 0) / 1_000_000_000;
 }
 
+function numberOrUndefined(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
+}
+
+function scaledNumberOrUndefined(value, factor) {
+  const number = numberOrUndefined(value);
+  return number === undefined ? undefined : Number((number * factor).toFixed(3));
+}
+
+function modeLabel(mode) {
+  switch (Number(mode)) {
+    case 0:
+      return "Manual";
+    case 1:
+      return "Autonomous";
+    case 2:
+      return "Teleoperated";
+    case 3:
+      return "Emergency";
+    default:
+      return undefined;
+  }
+}
+
 function secondsToTime(seconds) {
   const sec = Math.floor(seconds);
   return {
@@ -411,8 +459,30 @@ function getThrottleInterval(topic, type) {
     lowerType.includes("odometry") ||
     lowerType.includes("navsatfix") ||
     lowerType.includes("magneticfield") ||
+    lowerType.includes("velocityinformation") ||
+    lowerType.includes("eps_response") ||
+    lowerType.includes("ehb_brakingresponse") ||
+    lowerType.includes("fb_motordriver") ||
+    lowerType.includes("fb_omux_to_autonomous") ||
+    lowerType.includes("autonomousheardbit") ||
+    lowerType.includes("cruisecontrolsignals") ||
+    lowerType.includes("vcu_eps_control") ||
+    lowerType.includes("vcu_ehb_control") ||
+    lowerType.includes("steercontrol") ||
+    lowerType.includes("brakecontrol") ||
+    lowerType.includes("vehiclemode") ||
     lowerTopic.includes("imu") ||
-    lowerTopic.includes("navsat")
+    lowerTopic.includes("navsat") ||
+    lowerTopic.includes("velocity") ||
+    lowerTopic.includes("eps") ||
+    lowerTopic.includes("brake") ||
+    lowerTopic.includes("ehb") ||
+    lowerTopic.includes("motor") ||
+    lowerTopic.includes("steer") ||
+    lowerTopic.includes("throttle") ||
+    lowerTopic.includes("autonomous") ||
+    lowerTopic.includes("rc_unit") ||
+    lowerTopic.includes("vcu")
   ) {
     return MIN_TELEMETRY_INTERVAL_SECONDS;
   }
@@ -453,10 +523,106 @@ function chooseRosbagTopics(topics) {
     return selected;
   }
 
-  return topics
+  const hintedTopics = topics
     .filter((topic) => ROSBAG_TOPIC_HINTS.some((hint) => topic.topic.toLowerCase().includes(hint)))
-    .slice(0, 24)
+    .slice(0, 32)
     .map((topic) => topic.topic);
+
+  if (hintedTopics.length > 0) {
+    return hintedTopics;
+  }
+
+  return topics.slice(0, 32).map((topic) => topic.topic);
+}
+
+function normalizeVehicleTelemetry(message, type, topic) {
+  const lowerType = type.toLowerCase();
+  const lowerTopic = topic.toLowerCase();
+  const vehicle = {};
+  const telemetry = {};
+
+  if (lowerType.includes("velocityinformation") || lowerTopic.includes("velocityinformation")) {
+    const speed = scaledNumberOrUndefined(message.VelocityMS, 0.01);
+    const speedKmh = scaledNumberOrUndefined(message.VelocityKMH, 0.1);
+    if (speed !== undefined) telemetry.speed = speed;
+    if (speedKmh !== undefined) vehicle.speedKmh = speedKmh;
+  }
+
+  if (lowerType.includes("eps_response") || lowerTopic.includes("eps_response")) {
+    vehicle.steeringAngle = numberOrUndefined(message.EPS_StrAng);
+    vehicle.steeringSpeed = numberOrUndefined(message.EPS_StrAngSpdStat);
+    vehicle.steeringTorque = scaledNumberOrUndefined(message.EPS_InputTq, 0.1);
+    vehicle.epsTemperature = numberOrUndefined(message.EPS_MCUTemp);
+    vehicle.epsWork = Boolean(message.EPS_WorkStat);
+    vehicle.epsFault = Boolean(message.EPS_FltStat || message.EPS_CANFltStat || message.EPS_FltLv1Stat || message.EPS_FltLv2Stat || message.EPS_FltLv3Stat);
+  }
+
+  if (lowerType.includes("vcu_eps_control") || lowerTopic.includes("vcu_eps_control")) {
+    vehicle.targetSteeringAngle = numberOrUndefined(message.Target_Angle_st);
+    vehicle.targetSteeringSpeed = numberOrUndefined(message.Angle_speed_st);
+    vehicle.epsWorkCommand = Boolean(message.VCU_EPSWorkMode);
+  }
+
+  if (lowerType.includes("steercontrol") || lowerTopic.includes("steer_control")) {
+    vehicle.targetSteeringAngle = numberOrUndefined(message.desired_angle);
+    vehicle.targetSteeringSpeed = numberOrUndefined(message.desired_angle_speed);
+  }
+
+  if (lowerType.includes("ehb_brakingresponse") || lowerTopic.includes("ehb_brakingresponse")) {
+    vehicle.brakePressure = scaledNumberOrUndefined(message.EHB_ActualPressure, 0.125);
+    vehicle.brakePedal = numberOrUndefined(message.EHB_BrkPedallStk);
+    vehicle.brakeFaultLevel = numberOrUndefined(message.EHB_EHBFaultLevel);
+    vehicle.parkingBrake = Boolean(message.EHB_ParkingBrakeRequest);
+    vehicle.brakeSystemActive = Boolean(message.EHB_EHBStatus);
+  }
+
+  if (lowerType.includes("vcu_ehb_control") || lowerTopic.includes("vcu_ehb_control")) {
+    vehicle.targetBrakePressure = scaledNumberOrUndefined(message.VCU_BrkAimPressure, 0.125);
+    vehicle.brakingEnable = numberOrUndefined(message.VCU_BrakingEnable);
+    vehicle.commandedVehicleSpeedKmh = scaledNumberOrUndefined(message.VCU_VehicleSpeed, 0.1);
+  }
+
+  if (lowerType.includes("brakecontrol") || lowerTopic.includes("brake_control")) {
+    vehicle.brakePercent = numberOrUndefined(message.brake_percent);
+  }
+
+  if (lowerType.includes("cruisecontrolsignals") || lowerTopic.includes("throttle_control")) {
+    vehicle.throttleSetSpeedKmh = numberOrUndefined(message.setSpeed_kmh);
+    vehicle.cruiseActive = Boolean(message.cruiseActive);
+  }
+
+  if (lowerType.includes("fb_motordriver") || lowerTopic.includes("fb_motor_driver_report")) {
+    vehicle.rpm = numberOrUndefined(message.VehicleRPM);
+    vehicle.tripDistance = numberOrUndefined(message.PlusTripDistance);
+    vehicle.gear = numberOrUndefined(message.GEAR_STATUS_FROM_MOTOR);
+  }
+
+  if (lowerType.includes("fb_omux_to_autonomous") || lowerTopic.includes("rc_unit_report")) {
+    vehicle.batterySoc = numberOrUndefined(message.FB_BatterySOC);
+    vehicle.batteryVoltage = numberOrUndefined(message.FB_BatteryVoltage);
+    vehicle.ignition = Boolean(message.FB_IGNITION);
+    vehicle.leftSignal = Boolean(message.FB_LeftSignal);
+    vehicle.rightSignal = Boolean(message.FB_RightSignal);
+    vehicle.emergency = Boolean(message.FB_EMERGENCY);
+    vehicle.handbrake = Boolean(message.FB_HANDBRAKESTATUS);
+  }
+
+  if (lowerType.includes("autonomousheardbit") || lowerTopic.includes("autonomous_report")) {
+    vehicle.autonomousManualSelect = Boolean(message.AutonomousManuelSelect);
+  }
+
+  if (lowerType.includes("vehiclemode") || lowerTopic.includes("autonomous_mode_selection")) {
+    vehicle.mode = modeLabel(message.mode) || String(message.mode);
+  }
+
+  if (Object.keys(vehicle).length === 0 && Object.keys(telemetry).length === 0) {
+    return undefined;
+  }
+
+  return {
+    ...telemetry,
+    vehicle,
+  };
 }
 
 function normalizeFrame(frame) {
@@ -581,6 +747,17 @@ function normalizeFrame(frame) {
     };
   }
 
+  const vehicleTelemetry = normalizeVehicleTelemetry(message, type, topic);
+  if (vehicleTelemetry) {
+    return {
+      type: "telemetry",
+      source: "bag-playback",
+      topic,
+      time,
+      telemetry: vehicleTelemetry,
+    };
+  }
+
   return {
     type: "bag-frame",
     source: "bag-playback",
@@ -591,8 +768,8 @@ function normalizeFrame(frame) {
   };
 }
 
-function createJsonPlaybackSource({ emit }) {
-  const { absolutePath, frames } = readExportFile();
+function createJsonPlaybackSource({ emit, filePath }) {
+  const { absolutePath, frames } = readExportFile(filePath);
   let timer;
   let cursor = 0;
   let playing = false;
@@ -721,8 +898,8 @@ const IDENTITY_TF = { translation: {x:0,y:0,z:0}, rotation: {x:0,y:0,z:0,w:1} };
 
 // ── Rosbag Playback Source ───────────────────────────────────────────────────
 
-function createRosbagPlaybackSource({ emit }) {
-  const absolutePath = path.resolve(process.cwd(), BAG_FILE_PATH);
+function createRosbagPlaybackSource({ emit, filePath }) {
+  const absolutePath = path.resolve(process.cwd(), filePath || BAG_FILE_PATH);
   let bagPromise;
   let cachedBag;
   let timer;
@@ -1098,11 +1275,11 @@ function createRosbagPlaybackSource({ emit }) {
   };
 }
 
-export function createBagPlaybackSource({ emit }) {
-  const filePath = BAG_FILE_PATH || BAG_EXPORT_PATH;
-  if (filePath.toLowerCase().endsWith(".bag")) {
-    return createRosbagPlaybackSource({ emit });
+export function createBagPlaybackSource({ emit, filePath } = {}) {
+  const playbackPath = filePath || BAG_FILE_PATH || BAG_EXPORT_PATH;
+  if (playbackPath.toLowerCase().endsWith(".bag")) {
+    return createRosbagPlaybackSource({ emit, filePath: playbackPath });
   }
 
-  return createJsonPlaybackSource({ emit });
+  return createJsonPlaybackSource({ emit, filePath: playbackPath });
 }

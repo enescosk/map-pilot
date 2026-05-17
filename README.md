@@ -17,12 +17,34 @@ npm run server
 
 The frontend connects to `ws://localhost:4000`.
 
-## Live LiDAR Sources
+## Desktop `enes_ws` Bag Playback
 
-Direct serial LiDAR is the default:
+The backend now defaults to the ROS1 bags in `~/Desktop/enes_ws/bag` and streams them into the cockpit:
 
 ```bash
 npm run server
+```
+
+The UI bag picker lists files from that directory, including `aractan.bag` and `uzaktan.bag`. You can override the directory or first selected file:
+
+```bash
+BAG_DIRECTORY=/path/to/bags npm run server
+BAG_FILE_PATH=/path/to/file.bag npm run server
+```
+
+The Beemobs/DBW messages in those bags are normalized into the Vehicle State panel:
+
+- `/VelocityInformation`: speed in m/s and km/h.
+- `/eps_response`, `/vcu_eps_control`, `/steer_control`: steering state and commands.
+- `/EHB_BrakingResponse`, `/vcu_ehb_control`, `/brake_control`: brake state and commands.
+- `/throttle_control`, `/autonomous_mode_selection`, `/rc_unit_report`, `/fb_motor_driver_report`: drive mode, throttle, battery, gear, signals, and EPS status.
+
+## Live LiDAR Sources
+
+Bag playback is the default. Direct serial LiDAR is still available:
+
+```bash
+LIDAR_SOURCE=direct npm run server
 ```
 
 ROS bridge LiDAR:

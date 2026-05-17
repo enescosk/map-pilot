@@ -14,7 +14,7 @@ function DecisionLogPanel({ entries }: DecisionLogPanelProps) {
 
       <div className="decision-list">
         {entries.map((entry) => (
-          <div className="decision-row" key={`${entry.time}-${entry.source}-${entry.message}`}>
+          <div className="decision-row" key={entry.id}>
             <span>{entry.time}</span>
             <div>
               <strong>{entry.source}</strong>

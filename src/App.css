@@ -149,6 +149,7 @@ button:hover {
   display: grid;
   gap: 12px;
   grid-template-columns: 1fr;
+  min-height: 0;
 }
 
 /* Perception Mode */
@@ -338,6 +339,128 @@ button:hover {
   color: #04111a;
 }
 
+.panel-title-group {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+
+.topic-select {
+  background: rgba(8, 13, 18, 0.8);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  border-radius: 6px;
+  color: #e5edf6;
+  max-width: 220px;
+  padding: 4px 8px;
+}
+
+.lidar-tool-strip {
+  align-items: center;
+  background:
+    linear-gradient(180deg, rgba(14, 165, 233, 0.12), rgba(8, 13, 18, 0.42)),
+    rgba(10, 15, 24, 0.92);
+  border-bottom: 1px solid rgba(56, 189, 248, 0.22);
+  border-top: 1px solid rgba(56, 189, 248, 0.08);
+  display: grid;
+  gap: 1px;
+  grid-template-columns: minmax(112px, auto) minmax(116px, 140px) minmax(150px, 1fr) minmax(74px, auto) minmax(78px, auto);
+  min-height: 52px;
+  padding: 8px 10px;
+}
+
+.lidar-control-group,
+.toggle-row {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  color: #cbd5e1;
+  display: flex;
+  gap: 7px;
+  min-height: 36px;
+  padding: 5px 9px;
+}
+
+.lidar-control-group:first-child {
+  border-radius: 8px 0 0 8px;
+}
+
+.toggle-row:last-child {
+  border-radius: 0 8px 8px 0;
+}
+
+.control-caption {
+  color: #8fa0b7;
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.lidar-control-group select {
+  appearance: none;
+  background:
+    linear-gradient(45deg, transparent 50%, #7dd3fc 50%) right 10px center / 6px 6px no-repeat,
+    linear-gradient(135deg, #7dd3fc 50%, transparent 50%) right 6px center / 6px 6px no-repeat;
+  border: 0;
+  color: #e5edf6;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+  min-width: 78px;
+  outline: none;
+  padding-right: 20px;
+}
+
+.source-control {
+  gap: 9px;
+}
+
+.size-control input {
+  accent-color: #38bdf8;
+  min-width: 96px;
+}
+
+.toggle-row {
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 850;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.toggle-row input {
+  accent-color: #38bdf8;
+  margin: 0;
+}
+
+.segmented-control.compact {
+  background: rgba(8, 13, 18, 0.52);
+  border: 1px solid rgba(71, 85, 105, 0.42);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.segmented-control.compact button {
+  border-radius: 5px;
+  min-height: 26px;
+  padding: 3px 10px;
+}
+
+.segmented-control.compact button.selected {
+  background: #38bdf8;
+  color: #06111c;
+}
+
+@media (max-width: 1260px) {
+  .lidar-tool-strip {
+    grid-template-columns: repeat(5, minmax(0, auto));
+  }
+
+  .control-caption {
+    display: none;
+  }
+}
+
 .lidar-2d-stage {
   background:
     radial-gradient(circle, transparent 24%, rgba(55, 189, 248, 0.24) 24.5%, transparent 25%),
@@ -470,25 +593,467 @@ button:hover {
 }
 
 .telemetry-card {
-  min-height: 176px;
+  min-height: 430px;
 }
 
-.state-grid {
+.cockpit-card {
+  overflow: hidden;
+}
+
+.cockpit-layout {
   display: grid;
-  gap: 9px 12px;
-  grid-template-columns: 108px 1fr;
+  gap: 12px;
+  grid-template-rows: auto auto 1fr;
+  min-height: 0;
   padding: 12px;
 }
 
-.state-grid span {
-  color: #8fa0b7;
-  font-size: 0.78rem;
+.speed-gauge-card {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  min-height: 162px;
 }
 
-.state-grid strong {
+.gauge-dial {
+  aspect-ratio: 1;
+  background: radial-gradient(circle at 50% 55%, #121b2a 0 47%, #09111d 48% 100%);
+  border-radius: 50%;
+  box-shadow: inset 0 0 24px rgba(8, 13, 18, 0.9), 0 0 22px rgba(34, 197, 94, 0.1);
+  height: 148px;
+  position: relative;
+}
+
+.gauge-dial svg {
+  height: 100%;
+  width: 100%;
+}
+
+.gauge-track,
+.gauge-band,
+.gauge-progress {
+  fill: none;
+  stroke-linecap: round;
+}
+
+.gauge-track {
+  stroke: rgba(71, 85, 105, 0.34);
+  stroke-width: 16;
+}
+
+.gauge-band {
+  opacity: 0.78;
+  stroke-width: 13;
+}
+
+.band-low {
+  stroke: #22c55e;
+}
+
+.band-mid {
+  stroke: #f59e0b;
+}
+
+.band-high {
+  stroke: #ef4444;
+}
+
+.gauge-progress {
+  stroke: #38bdf8;
+  stroke-width: 4;
+}
+
+.gauge-needle {
+  stroke: #e5edf6;
+  stroke-linecap: round;
+  stroke-width: 5;
+  filter: drop-shadow(0 0 5px rgba(229, 237, 246, 0.52));
+  transition: x2 0.16s linear, y2 0.16s linear;
+}
+
+.gauge-hub {
+  fill: #38bdf8;
+  stroke: #0b0f19;
+  stroke-width: 5;
+  filter: drop-shadow(0 0 5px rgba(56, 189, 248, 0.6));
+}
+
+.gauge-readout {
+  bottom: 20px;
+  display: grid;
+  justify-items: center;
+  left: 0;
+  position: absolute;
+  right: 0;
+  z-index: 2;
+}
+
+.gauge-readout strong {
+  color: #f8fafc;
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.gauge-readout span,
+.gauge-subreadout span,
+.gauge-tick-svg {
+  color: #8fa0b7;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.gauge-subreadout {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+}
+
+.gauge-tick-svg {
+  fill: #9fb2ca;
+  font-size: 13px;
+  text-anchor: middle;
+}
+
+.vehicle-visual-card {
+  display: grid;
+  gap: 10px;
+}
+
+.vehicle-stage {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  min-height: 178px;
+  overflow: hidden;
+  position: relative;
+}
+
+.vehicle-body {
+  height: 168px;
+  position: relative;
+  width: 148px;
+}
+
+.vehicle-shadow {
+  background: radial-gradient(ellipse, rgba(0, 0, 0, 0.5), transparent 68%);
+  bottom: 0;
+  height: 28px;
+  left: 6px;
+  position: absolute;
+  right: 6px;
+}
+
+.vehicle-shell {
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.22) 48%, rgba(0, 0, 0, 0.22)),
+    linear-gradient(180deg, #2f3b4c 0%, #182334 48%, #111827 100%);
+  border: 1px solid rgba(148, 163, 184, 0.46);
+  border-radius: 42px 42px 26px 26px;
+  box-shadow: inset 0 0 28px rgba(8, 13, 18, 0.7), 0 16px 30px rgba(0, 0, 0, 0.34);
+  height: 148px;
+  left: 27px;
+  position: absolute;
+  top: 6px;
+  width: 94px;
+  z-index: 2;
+}
+
+.vehicle-windshield {
+  background:
+    linear-gradient(135deg, rgba(186, 230, 253, 0.38), rgba(15, 23, 42, 0.72));
+  border: 1px solid rgba(125, 211, 252, 0.28);
+  box-shadow: inset 8px 0 16px rgba(255, 255, 255, 0.08);
+  height: 24px;
+  left: 18px;
+  position: absolute;
+  right: 18px;
+}
+
+.vehicle-windshield.front {
+  border-radius: 18px 18px 9px 9px;
+  top: 28px;
+}
+
+.vehicle-windshield.rear {
+  border-radius: 9px 9px 18px 18px;
+  bottom: 26px;
+}
+
+.vehicle-roof {
+  background:
+    linear-gradient(90deg, rgba(125, 211, 252, 0.08), rgba(226, 232, 240, 0.12), rgba(15, 23, 42, 0.1)),
+    #182233;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 20px;
+  bottom: 54px;
+  left: 19px;
+  position: absolute;
+  right: 19px;
+  top: 58px;
+}
+
+.hood-lines,
+.trunk-lines {
+  border-left: 1px solid rgba(226, 232, 240, 0.14);
+  border-right: 1px solid rgba(226, 232, 240, 0.14);
+  left: 25px;
+  position: absolute;
+  right: 25px;
+}
+
+.hood-lines {
+  top: 10px;
+  height: 18px;
+}
+
+.trunk-lines {
+  bottom: 9px;
+  height: 16px;
+}
+
+.wheel {
+  background: linear-gradient(90deg, #05070d, #1f2937 45%, #05070d);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  height: 42px;
+  position: absolute;
+  width: 16px;
+  z-index: 1;
+}
+
+.wheel::after {
+  background: rgba(56, 189, 248, 0.18);
+  border-radius: 999px;
+  content: "";
+  inset: 8px 6px;
+  position: absolute;
+}
+
+.front-left {
+  left: 16px;
+  top: 24px;
+}
+
+.front-right {
+  right: 16px;
+  top: 24px;
+}
+
+.rear-left {
+  bottom: 30px;
+  left: 16px;
+}
+
+.rear-right {
+  bottom: 30px;
+  right: 16px;
+}
+
+.side-mirror {
+  background: #263447;
+  border: 1px solid rgba(148, 163, 184, 0.36);
+  height: 11px;
+  position: absolute;
+  top: 50px;
+  width: 18px;
+  z-index: 3;
+}
+
+.side-mirror.left {
+  border-radius: 10px 2px 2px 10px;
+  left: 9px;
+}
+
+.side-mirror.right {
+  border-radius: 2px 10px 10px 2px;
+  right: 9px;
+}
+
+.headlight,
+.brake-light,
+.corner-signal {
+  border-radius: 999px;
+  position: absolute;
+}
+
+.headlight {
+  background: rgba(226, 232, 240, 0.22);
+  height: 9px;
+  top: 5px;
+  width: 18px;
+}
+
+.headlight.left,
+.brake-light.left {
+  left: 18px;
+}
+
+.headlight.right,
+.brake-light.right {
+  right: 18px;
+}
+
+.headlight.active {
+  background: #f8fafc;
+  box-shadow: 0 -10px 24px rgba(248, 250, 252, 0.38);
+}
+
+.brake-light {
+  background: rgba(239, 68, 68, 0.2);
+  bottom: 5px;
+  height: 9px;
+  width: 18px;
+}
+
+.brake-light.active {
+  background: #ef4444;
+  box-shadow: 0 8px 22px rgba(239, 68, 68, 0.55);
+}
+
+.corner-signal {
+  background: rgba(245, 158, 11, 0.24);
+  height: 11px;
+  opacity: 0.35;
+  width: 9px;
+}
+
+.corner-signal.front-left {
+  left: 6px;
+  top: 18px;
+}
+
+.corner-signal.front-right {
+  right: 6px;
+  top: 18px;
+}
+
+.corner-signal.rear-left {
+  bottom: 17px;
+  left: 6px;
+}
+
+.corner-signal.rear-right {
+  bottom: 17px;
+  right: 6px;
+}
+
+.corner-signal.active {
+  background: #f59e0b;
+  filter: drop-shadow(0 0 16px rgba(245, 158, 11, 0.85));
+  opacity: 1;
+}
+
+.vehicle-light-strip {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.lamp {
+  background: rgba(15, 23, 42, 0.78);
+  border: 1px solid rgba(71, 85, 105, 0.65);
+  border-radius: 5px;
+  color: #7f8da3;
+  font-size: 0.68rem;
+  font-weight: 900;
+  padding: 6px 4px;
+  text-align: center;
+}
+
+.lamp.active.amber {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: rgba(245, 158, 11, 0.75);
+  color: #fcd34d;
+}
+
+.lamp.active.red {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: rgba(239, 68, 68, 0.75);
+  color: #fca5a5;
+}
+
+.cockpit-status-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.cockpit-metric {
+  background: rgba(8, 13, 18, 0.44);
+  border-left: 3px solid rgba(56, 189, 248, 0.5);
+  border-radius: 6px;
+  display: grid;
+  gap: 2px;
+  min-height: 58px;
+  padding: 8px;
+}
+
+.cockpit-metric span {
+  color: #8fa0b7;
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.cockpit-metric strong {
   color: #e5edf6;
-  font-size: 0.82rem;
-  overflow-wrap: anywhere;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.cockpit-metric em {
+  color: #93a4bb;
+  font-size: 0.72rem;
+  font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cockpit-metric.alert {
+  border-left-color: #ef4444;
+}
+
+.steering-wheel-widget {
+  align-items: center;
+  display: grid;
+  justify-items: center;
+}
+
+.steering-wheel {
+  border: 4px solid #94a3b8;
+  border-radius: 50%;
+  height: 54px;
+  position: relative;
+  transform: rotate(var(--steering-angle));
+  transition: transform 0.16s linear;
+  width: 54px;
+}
+
+.steering-wheel::before,
+.steering-wheel::after,
+.steering-wheel span {
+  background: #94a3b8;
+  border-radius: 999px;
+  content: "";
+  height: 4px;
+  left: 50%;
+  position: absolute;
+  top: 50%;
+  transform-origin: 0 50%;
+  width: 20px;
+}
+
+.steering-wheel::before {
+  transform: rotate(25deg);
+}
+
+.steering-wheel::after {
+  transform: rotate(155deg);
+}
+
+.steering-wheel span {
+  transform: rotate(270deg);
 }
 
 .topic-workspace {
@@ -562,8 +1127,8 @@ button:hover {
   background: #24272e;
   border-top: 1px solid #3a3f49;
   display: grid;
-  gap: 14px;
-  grid-template-columns: 210px 1fr auto;
+  gap: 12px;
+  grid-template-columns: 116px auto 1fr minmax(172px, auto);
   min-height: 54px;
   padding: 10px 16px;
 }
@@ -572,6 +1137,62 @@ button:hover {
 .playback-bar strong {
   color: #d8e0ec;
   font-size: 0.82rem;
+}
+
+.playback-controls {
+  align-items: center;
+  background: rgba(8, 13, 18, 0.38);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+}
+
+.playback-controls button {
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  color: #dbeafe;
+  font-size: 0.76rem;
+  min-height: 28px;
+  min-width: 48px;
+  padding: 4px 8px;
+}
+
+.playback-controls button:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.18);
+}
+
+.playback-controls button:disabled {
+  color: #64748b;
+  cursor: not-allowed;
+}
+
+.frame-count {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  border-radius: 7px;
+  display: grid;
+  gap: 1px;
+  justify-self: end;
+  min-width: 158px;
+  padding: 5px 10px;
+}
+
+.frame-count span {
+  color: #7dd3fc;
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.frame-count strong {
+  color: #e5edf6;
+  font-size: 0.78rem;
+  line-height: 1.1;
 }
 
 .timeline-wrapper {

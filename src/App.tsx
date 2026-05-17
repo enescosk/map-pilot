@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import ControlPanel from "./components/ControlPanel";
@@ -125,6 +125,37 @@ type TelemetryState = {
   angularVelocity: Vector3;
   magneticField: Vector3;
   gps: GpsFix;
+  vehicle: {
+    speedKmh?: number;
+    steeringAngle?: number;
+    steeringSpeed?: number;
+    steeringTorque?: number;
+    targetSteeringAngle?: number;
+    targetSteeringSpeed?: number;
+    epsTemperature?: number;
+    epsWork?: boolean;
+    epsFault?: boolean;
+    brakePressure?: number;
+    targetBrakePressure?: number;
+    brakePedal?: number;
+    brakePercent?: number;
+    brakeFaultLevel?: number;
+    parkingBrake?: boolean;
+    throttleSetSpeedKmh?: number;
+    cruiseActive?: boolean;
+    rpm?: number;
+    tripDistance?: number;
+    gear?: number;
+    batterySoc?: number;
+    batteryVoltage?: number;
+    ignition?: boolean;
+    leftSignal?: boolean;
+    rightSignal?: boolean;
+    emergency?: boolean;
+    handbrake?: boolean;
+    autonomousManualSelect?: boolean;
+    mode?: string;
+  };
   pose?: {
     position?: Vector3;
     orientation?: Vector3 & { w?: number };
@@ -206,6 +237,7 @@ const emptyTelemetry: TelemetryState = {
   angularVelocity: {},
   magneticField: {},
   gps: {},
+  vehicle: {},
 };
 
 function vectorMagnitude(vector?: Vector3) {
@@ -248,6 +280,27 @@ function formatFileSize(bytes?: number) {
     return `${(size / 1_048_576).toFixed(1)} MB`;
   }
   return `${Math.max(0, Math.round(size / 1024))} KB`;
+}
+
+function formatBoolean(value?: boolean) {
+  if (typeof value !== "boolean") {
+    return "--";
+  }
+
+  return value ? "On" : "Off";
+}
+
+function formatGear(value?: number) {
+  switch (Number(value)) {
+    case 0:
+      return "N";
+    case 1:
+      return "D";
+    case 2:
+      return "R";
+    default:
+      return Number.isFinite(value) ? String(value) : "--";
+  }
 }
 
 function timeLabel(time?: string) {
@@ -607,6 +660,157 @@ function SparkChart({ title, value, unit, data, color }: {
         <path d="M0 20 H320 M0 53 H320 M0 86 H320" className="chart-grid" />
         <polyline points={points} fill="none" stroke={color} strokeWidth="2.5" />
       </svg>
+    </section>
+  );
+}
+
+function SpeedGauge({ speedKmh, speedMs }: { speedKmh?: number; speedMs: number }) {
+  const displaySpeed = Number.isFinite(speedKmh) ? Number(speedKmh) : speedMs * 3.6;
+  const maxSpeed = 40;
+  const ratio = Math.max(0, Math.min(1, displaySpeed / maxSpeed));
+  const startAngle = 135;
+  const sweepAngle = 270;
+  const needleAngle = startAngle + ratio * sweepAngle;
+  const angleToPoint = (angle: number, radius: number) => {
+    const radians = (angle * Math.PI) / 180;
+    return {
+      x: 100 + Math.cos(radians) * radius,
+      y: 100 + Math.sin(radians) * radius,
+    };
+  };
+  const arcPath = (start: number, end: number, radius = 66) => {
+    const startPoint = angleToPoint(start, radius);
+    const endPoint = angleToPoint(end, radius);
+    const largeArc = Math.abs(end - start) > 180 ? 1 : 0;
+    return `M ${startPoint.x.toFixed(2)} ${startPoint.y.toFixed(2)} A ${radius} ${radius} 0 ${largeArc} 1 ${endPoint.x.toFixed(2)} ${endPoint.y.toFixed(2)}`;
+  };
+  const angleForSpeed = (speed: number) => startAngle + (Math.max(0, Math.min(maxSpeed, speed)) / maxSpeed) * sweepAngle;
+  const needleEnd = angleToPoint(needleAngle, 57);
+
+  return (
+    <section className="speed-gauge-card" aria-label="Vehicle speed gauge">
+      <div className="gauge-dial">
+        <svg viewBox="0 0 200 200" role="img" aria-label={`${formatNumber(displaySpeed, 1)} km/h`}>
+          <path className="gauge-track" d={arcPath(startAngle, startAngle + sweepAngle)} />
+          <path className="gauge-band band-low" d={arcPath(angleForSpeed(0), angleForSpeed(14))} />
+          <path className="gauge-band band-mid" d={arcPath(angleForSpeed(14.8), angleForSpeed(26))} />
+          <path className="gauge-band band-high" d={arcPath(angleForSpeed(26.8), angleForSpeed(40))} />
+          <path className="gauge-progress" d={arcPath(startAngle, needleAngle)} />
+          <line className="gauge-needle" x1="100" y1="100" x2={needleEnd.x} y2={needleEnd.y} />
+          <circle className="gauge-hub" cx="100" cy="100" r="9" />
+          <text className="gauge-tick-svg" x="47" y="151">0</text>
+          <text className="gauge-tick-svg" x="100" y="39">20</text>
+          <text className="gauge-tick-svg" x="153" y="151">40</text>
+        </svg>
+        <div className="gauge-readout">
+          <strong>{formatNumber(displaySpeed, 1)}</strong>
+          <span>km/h</span>
+        </div>
+      </div>
+      <div className="gauge-subreadout">
+        <span>{formatNumber(speedMs)} m/s</span>
+        <span>{formatNumber(ratio * 100, 0)}%</span>
+      </div>
+    </section>
+  );
+}
+
+function VehicleTopView({ vehicle }: { vehicle: TelemetryState["vehicle"] }) {
+  const brakeActive = Number(vehicle.brakePercent || 0) > 0 || Number(vehicle.brakePressure || 0) > 0.2 || Boolean(vehicle.handbrake);
+  const hazardActive = Boolean(vehicle.emergency) || (Boolean(vehicle.leftSignal) && Boolean(vehicle.rightSignal));
+
+  return (
+    <section className="vehicle-visual-card" aria-label="Vehicle signal visualization">
+      <div className="vehicle-stage">
+        <div className="vehicle-body">
+          <div className="vehicle-shadow" />
+          <div className="wheel front-left" />
+          <div className="wheel front-right" />
+          <div className="wheel rear-left" />
+          <div className="wheel rear-right" />
+          <div className="side-mirror left" />
+          <div className="side-mirror right" />
+          <div className="vehicle-shell">
+            <div className={vehicle.ignition ? "headlight left active" : "headlight left"} />
+            <div className={vehicle.ignition ? "headlight right active" : "headlight right"} />
+            <div className={vehicle.leftSignal || hazardActive ? "corner-signal front-left active" : "corner-signal front-left"} />
+            <div className={vehicle.rightSignal || hazardActive ? "corner-signal front-right active" : "corner-signal front-right"} />
+            <div className={vehicle.leftSignal || hazardActive ? "corner-signal rear-left active" : "corner-signal rear-left"} />
+            <div className={vehicle.rightSignal || hazardActive ? "corner-signal rear-right active" : "corner-signal rear-right"} />
+            <div className="hood-lines" />
+            <div className="vehicle-windshield front" />
+            <div className="vehicle-roof" />
+            <div className="vehicle-windshield rear" />
+            <div className="trunk-lines" />
+            <div className={brakeActive ? "brake-light left active" : "brake-light left"} />
+            <div className={brakeActive ? "brake-light right active" : "brake-light right"} />
+          </div>
+        </div>
+      </div>
+      <div className="vehicle-light-strip">
+        <span className={vehicle.leftSignal || hazardActive ? "lamp active amber" : "lamp amber"}>LEFT</span>
+        <span className={brakeActive ? "lamp active red" : "lamp red"}>BRAKE</span>
+        <span className={hazardActive ? "lamp active red" : "lamp red"}>HAZARD</span>
+        <span className={vehicle.rightSignal || hazardActive ? "lamp active amber" : "lamp amber"}>RIGHT</span>
+      </div>
+    </section>
+  );
+}
+
+function VehicleCockpit({ telemetry, time }: { telemetry: TelemetryState; time?: string }) {
+  const vehicle = telemetry.vehicle;
+  const steeringAngle = Number(vehicle.steeringAngle || 0);
+  const steeringStyle = {
+    "--steering-angle": `${Math.max(-90, Math.min(90, steeringAngle))}deg`,
+  } as CSSProperties;
+
+  return (
+    <section className="workspace-panel telemetry-card cockpit-card">
+      <div className="panel-titlebar">
+        <span>Vehicle Cockpit</span>
+        <strong>{time || "--"}</strong>
+      </div>
+      <div className="cockpit-layout">
+        <SpeedGauge speedKmh={vehicle.speedKmh} speedMs={telemetry.speed} />
+        <VehicleTopView vehicle={vehicle} />
+        <div className="cockpit-status-grid">
+          <div className="cockpit-metric">
+            <span>Steering</span>
+            <strong>{formatNumber(vehicle.steeringAngle, 0)}°</strong>
+            <em>target {formatNumber(vehicle.targetSteeringAngle, 0)}°</em>
+          </div>
+          <div className="steering-wheel-widget" style={steeringStyle} aria-label="Steering angle">
+            <div className="steering-wheel">
+              <span />
+            </div>
+          </div>
+          <div className="cockpit-metric">
+            <span>Brake</span>
+            <strong>{formatNumber(vehicle.brakePercent, 0)}%</strong>
+            <em>{formatNumber(vehicle.brakePressure, 1)} bar</em>
+          </div>
+          <div className="cockpit-metric">
+            <span>Throttle</span>
+            <strong>{formatNumber(vehicle.throttleSetSpeedKmh, 0)}</strong>
+            <em>cruise {formatBoolean(vehicle.cruiseActive)}</em>
+          </div>
+          <div className="cockpit-metric">
+            <span>Drive</span>
+            <strong>{formatGear(vehicle.gear)}</strong>
+            <em>{vehicle.mode || "mode --"}</em>
+          </div>
+          <div className={vehicle.epsFault ? "cockpit-metric alert" : "cockpit-metric"}>
+            <span>EPS</span>
+            <strong>{formatBoolean(vehicle.epsWork)}</strong>
+            <em>fault {formatBoolean(vehicle.epsFault)}</em>
+          </div>
+          <div className="cockpit-metric">
+            <span>Battery</span>
+            <strong>{formatNumber(vehicle.batterySoc, 0)}%</strong>
+            <em>{formatNumber(vehicle.batteryVoltage, 0)} V</em>
+          </div>
+        </div>
+      </div>
     </section>
   );
 }
@@ -1180,13 +1384,13 @@ function LidarWorkspace({
   return (
     <section className="workspace-panel lidar-workspace">
       <div className="panel-titlebar">
-        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+        <div className="panel-title-group">
           <span>Overview</span>
           {availableTopics.length > 0 && (
             <select
+              className="topic-select"
               value={activeTopic}
               onChange={(e) => setActiveTopic(e.target.value)}
-              style={{ background: "#111827", color: "#fff", border: "1px solid #374151", borderRadius: "4px", padding: "2px 8px" }}
             >
               <option value="" disabled>Select point cloud</option>
               {availableTopics.map(t => <option key={t} value={t}>{t}</option>)}
@@ -1204,24 +1408,27 @@ function LidarWorkspace({
       </div>
       {mode === "3d" && (
         <div className="lidar-tool-strip">
-          <div className="segmented-control compact" aria-label="Point cloud view">
-            <button type="button" className={cloudView === "live" ? "selected" : ""} onClick={() => setCloudView("live")}>
-              Live
-            </button>
-            <button type="button" className={cloudView === "map" ? "selected" : ""} onClick={() => setCloudView("map")}>
-              Map
-            </button>
+          <div className="lidar-control-group source-control">
+            <span className="control-caption">Source</span>
+            <div className="segmented-control compact" aria-label="Point cloud view">
+              <button type="button" className={cloudView === "live" ? "selected" : ""} onClick={() => setCloudView("live")}>
+                Live
+              </button>
+              <button type="button" className={cloudView === "map" ? "selected" : ""} onClick={() => setCloudView("map")}>
+                Map
+              </button>
+            </div>
           </div>
-          <label>
-            Color
-            <select value={colorMode} onChange={(event) => setColorMode(event.currentTarget.value as LidarColorMode)}>
+          <label className="lidar-control-group">
+            <span className="control-caption">Color</span>
+            <select aria-label="Point color mode" value={colorMode} onChange={(event) => setColorMode(event.currentTarget.value as LidarColorMode)}>
               <option value="intensity">Intensity</option>
               <option value="height">Height</option>
               <option value="distance">Distance</option>
             </select>
           </label>
-          <label>
-            Size
+          <label className="lidar-control-group size-control">
+            <span className="control-caption">Size</span>
             <input
               max="0.32"
               min="0.04"
@@ -1233,11 +1440,11 @@ function LidarWorkspace({
           </label>
           <label className="toggle-row">
             <input checked={autoFit} type="checkbox" onChange={(event) => setAutoFit(event.currentTarget.checked)} />
-            Auto Fit
+            <span>Auto</span>
           </label>
           <label className="toggle-row">
             <input checked={showDebug} type="checkbox" onChange={(event) => setShowDebug(event.currentTarget.checked)} />
-            Debug
+            <span>Debug</span>
           </label>
         </div>
       )}
@@ -1598,6 +1805,7 @@ function App() {
               acceleration: { ...prev.acceleration, ...packet.telemetry.acceleration },
               angularVelocity: { ...prev.angularVelocity, ...packet.telemetry.angularVelocity },
               magneticField: { ...prev.magneticField, ...packet.telemetry.magneticField },
+              vehicle: { ...prev.vehicle, ...packet.telemetry.vehicle },
             };
 
             const accMag = vectorMagnitude(next.acceleration);
@@ -1732,6 +1940,9 @@ function App() {
   const currentSeconds = Math.max(0, timeStringToSeconds(bagStatus.currentTime) - timeStringToSeconds(bagStatus.startTime));
   const durationSeconds = Number(bagStatus.durationSeconds || 0);
   const playbackRatio = pendingSeekRatio ?? (durationSeconds > 0 ? Math.min(currentSeconds / durationSeconds, 1) : 0);
+  const frameLabel = bagStatus.frameCount > 0
+    ? `Frame ${Math.trunc(Math.min(bagStatus.cursor, bagStatus.frameCount))} / ${Math.trunc(bagStatus.frameCount)}`
+    : "Frame 0 / 0";
 
   function sendPlaybackCommand(type: "start-lidar" | "stop-lidar") {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
@@ -1751,6 +1962,14 @@ function App() {
       setLidarReadings([]);
       socketRef.current.send(JSON.stringify({ type: "seek-playback", ratio }));
     }
+  }
+
+  function seekPlaybackBySeconds(deltaSeconds: number) {
+    if (durationSeconds <= 0) {
+      return;
+    }
+
+    seekPlayback((currentSeconds + deltaSeconds) / durationSeconds);
   }
 
   function loadBag(path: string) {
@@ -1837,6 +2056,7 @@ function App() {
             onStopLidar={() => sendPlaybackCommand("stop-lidar")}
           />
           <div className="telemetry-charts">
+            <VehicleCockpit telemetry={telemetry} time={latestFrame?.time} />
             <SparkChart
               title="/imu/acceleration"
               value={formatNumber(vectorMagnitude(telemetry.acceleration))}
@@ -1844,33 +2064,27 @@ function App() {
               data={series.acceleration}
               color="#34d399"
             />
-            <SparkChart
-              title="/vehicle/speed"
-              value={formatNumber(telemetry.speed)}
-              unit="m/s"
-              data={series.speed}
-              color="#f59e0b"
-            />
           </div>
-          <section className="workspace-panel telemetry-card">
-            <div className="panel-titlebar">
-              <span>Vehicle State</span>
-              <strong>{latestFrame?.time || "--"}</strong>
-            </div>
-            <div className="state-grid">
-              <span>GPS</span>
-              <strong>{formatNumber(telemetry.gps.latitude, 6)}, {formatNumber(telemetry.gps.longitude, 6)}</strong>
-              <span>Acceleration XYZ</span>
-              <strong>{formatNumber(telemetry.acceleration.x)} / {formatNumber(telemetry.acceleration.y)} / {formatNumber(telemetry.acceleration.z)}</strong>
-              <span>Angular XYZ</span>
-              <strong>{formatNumber(telemetry.angularVelocity.x)} / {formatNumber(telemetry.angularVelocity.y)} / {formatNumber(telemetry.angularVelocity.z)}</strong>
-            </div>
-          </section>
         </aside>
       </section>
 
       <footer className="playback-bar">
         <span>{formatDuration(currentSeconds)} / {formatDuration(durationSeconds)}</span>
+        <div className="playback-controls" aria-label="Playback controls">
+          <button type="button" onClick={() => seekPlaybackBySeconds(-10)} disabled={durationSeconds <= 0}>
+            -10s
+          </button>
+          <button
+            type="button"
+            onClick={() => sendPlaybackCommand(bagStatus.playing ? "stop-lidar" : "start-lidar")}
+            disabled={!backendConnected}
+          >
+            {bagStatus.playing ? "Pause" : "Play"}
+          </button>
+          <button type="button" onClick={() => seekPlaybackBySeconds(10)} disabled={durationSeconds <= 0}>
+            +10s
+          </button>
+        </div>
         <div className="timeline-wrapper">
           <input
             aria-label="Playback position"
@@ -1898,7 +2112,10 @@ function App() {
             );
           })}
         </div>
-        <strong>{latestFrame?.time || "Waiting for bag messages"}</strong>
+        <div className="frame-count" aria-label="Playback frame count">
+          <span>Frames</span>
+          <strong>{frameLabel.replace("Frame ", "")}</strong>
+        </div>
       </footer>
     </main>
   );
