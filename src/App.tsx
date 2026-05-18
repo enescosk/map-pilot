@@ -5,6 +5,10 @@ import ControlPanel from "./components/ControlPanel";
 import DecisionLogPanel from "./components/DecisionLogPanel";
 import "./App.css";
 
+const WS_URL =
+  import.meta.env.VITE_WS_URL ||
+  `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.hostname}:4000`;
+
 export type WorkspaceMode = "perception" | "control" | "debug";
 
 export type LidarReading = {
@@ -1534,6 +1538,9 @@ function TopicPanel({ topics, latest }: { topics: BagTopicSummary[]; latest?: La
 function App() {
   const [mode, setMode] = useState<WorkspaceMode>("perception");
   const [backendConnected, setBackendConnected] = useState(false);
+  const [backendSource, setBackendSource] = useState("none");
+  const [lastPacketAt, setLastPacketAt] = useState(0);
+  const [nowMs, setNowMs] = useState(Date.now());
   const [lidarReadings, setLidarReadings] = useState<LidarReading[]>([]);
   const [pointClouds, setPointClouds] = useState<Record<string, LidarCloudState>>({});
   const [activePointCloudTopic, setActivePointCloudTopic] = useState<string>("");
@@ -1680,7 +1687,7 @@ function App() {
         return;
       }
 
-      const socket = new WebSocket("ws://localhost:4000");
+      const socket = new WebSocket(WS_URL);
       socketRef.current = socket;
 
       socket.addEventListener("open", () => {
@@ -1692,6 +1699,7 @@ function App() {
       socket.addEventListener("message", (event) => {
       try {
         const packet = JSON.parse(event.data);
+        setLastPacketAt(Date.now());
         const label = timeLabel(packet.time);
 
         if (packet.type === "bag-list") {
@@ -1703,6 +1711,10 @@ function App() {
         if (packet.type === "reset-playback") {
           resetPlaybackState();
           setSelectedBagPath(packet.path || "");
+        }
+
+        if (packet.type === "status") {
+          setBackendSource(packet.source || "unknown");
         }
 
         if (packet.type === "scan" && Array.isArray(packet.readings)) {
@@ -1914,9 +1926,11 @@ function App() {
     }
 
     connect();
+    const clockTimer = window.setInterval(() => setNowMs(Date.now()), 1000);
 
     return () => {
       shouldReconnect = false;
+      window.clearInterval(clockTimer);
       if (reconnectTimer) {
         window.clearTimeout(reconnectTimer);
       }
@@ -1937,6 +1951,9 @@ function App() {
   }, [cockpitEvents]);
 
   const bagName = useMemo(() => bagStatus.path.split("/").at(-1) || "2025-07-21-16-54-43.bag", [bagStatus.path]);
+  const isLiveMqtt = backendSource === "mqtt";
+  const secondsSincePacket = lastPacketAt > 0 ? Math.max(0, Math.round((nowMs - lastPacketAt) / 1000)) : 0;
+  const streamIsFresh = backendConnected && lastPacketAt > 0 && secondsSincePacket <= 3;
   const currentSeconds = Math.max(0, timeStringToSeconds(bagStatus.currentTime) - timeStringToSeconds(bagStatus.startTime));
   const durationSeconds = Number(bagStatus.durationSeconds || 0);
   const playbackRatio = pendingSeekRatio ?? (durationSeconds > 0 ? Math.min(currentSeconds / durationSeconds, 1) : 0);
@@ -1951,6 +1968,10 @@ function App() {
   }
 
   function seekPlayback(ratio: number) {
+    if (isLiveMqtt) {
+      return;
+    }
+
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       setPendingSeekRatio(undefined);
       pendingPointCloudsRef.current.clear();
@@ -2000,9 +2021,9 @@ function App() {
         </div>
         <label className="bag-picker">
           <span>Bag</span>
-          <select value={selectedBagPath} onChange={(event) => loadBag(event.currentTarget.value)}>
+          <select value={selectedBagPath} onChange={(event) => loadBag(event.currentTarget.value)} disabled={isLiveMqtt}>
             {bagFiles.length === 0 ? (
-              <option value="">No .bag files found</option>
+              <option value="">{isLiveMqtt ? "Remote MQTT stream" : "No .bag files found"}</option>
             ) : bagFiles.map((file) => (
               <option key={file.path} value={file.path}>
                 {file.name} ({formatFileSize(file.size)})
@@ -2018,6 +2039,12 @@ function App() {
         <div className="top-actions">
           <span className={backendConnected ? "status-pill good" : "status-pill bad"}>
             {backendConnected ? "Backend online" : "Backend offline"}
+          </span>
+          <span className={isLiveMqtt ? "status-pill good" : "status-pill muted"}>
+            {isLiveMqtt ? "MQTT live" : "Playback source"}
+          </span>
+          <span className={streamIsFresh ? "status-pill good" : "status-pill muted"}>
+            {lastPacketAt > 0 ? `Last packet ${secondsSincePacket}s` : "No packets"}
           </span>
           <span className={bagStatus.playing ? "status-pill good" : "status-pill muted"}>
             {bagStatus.playing ? "Playing" : "Paused"}
@@ -2069,26 +2096,27 @@ function App() {
       </section>
 
       <footer className="playback-bar">
-        <span>{formatDuration(currentSeconds)} / {formatDuration(durationSeconds)}</span>
+        <span>{isLiveMqtt ? "Live MQTT stream" : `${formatDuration(currentSeconds)} / ${formatDuration(durationSeconds)}`}</span>
         <div className="playback-controls" aria-label="Playback controls">
-          <button type="button" onClick={() => seekPlaybackBySeconds(-10)} disabled={durationSeconds <= 0}>
+          <button type="button" onClick={() => seekPlaybackBySeconds(-10)} disabled={isLiveMqtt || durationSeconds <= 0}>
             -10s
           </button>
           <button
             type="button"
             onClick={() => sendPlaybackCommand(bagStatus.playing ? "stop-lidar" : "start-lidar")}
-            disabled={!backendConnected}
+            disabled={!backendConnected || isLiveMqtt}
           >
-            {bagStatus.playing ? "Pause" : "Play"}
+            {isLiveMqtt ? "Live" : bagStatus.playing ? "Pause" : "Play"}
           </button>
-          <button type="button" onClick={() => seekPlaybackBySeconds(10)} disabled={durationSeconds <= 0}>
+          <button type="button" onClick={() => seekPlaybackBySeconds(10)} disabled={isLiveMqtt || durationSeconds <= 0}>
             +10s
           </button>
         </div>
-        <div className="timeline-wrapper">
+        <div className={`timeline-wrapper ${isLiveMqtt ? "live" : ""}`}>
           <input
             aria-label="Playback position"
             className="timeline-control"
+            disabled={isLiveMqtt}
             max="1000"
             min="0"
             type="range"
@@ -2098,7 +2126,7 @@ function App() {
             onKeyUp={(event) => commitPreviewSeek(Number(event.currentTarget.value) / 1000)}
             onPointerUp={(event) => commitPreviewSeek(Number(event.currentTarget.value) / 1000)}
           />
-          {durationSeconds > 0 && cockpitEvents.map((event) => {
+          {!isLiveMqtt && durationSeconds > 0 && cockpitEvents.map((event) => {
             const ratio = (event.timestamp - timeStringToSeconds(bagStatus.startTime)) / durationSeconds;
             if (ratio < 0 || ratio > 1) return null;
             return (

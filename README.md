@@ -32,6 +32,79 @@ BAG_DIRECTORY=/path/to/bags npm run server
 BAG_FILE_PATH=/path/to/file.bag npm run server
 ```
 
+## Two-Computer MQTT Simulation
+
+Use this mode when one computer should behave like the vehicle and another
+computer should run the monitoring dashboard.
+
+### Computer 1: vehicle simulator
+
+This computer has the bag files and publishes recorded vehicle data to MQTT.
+
+```bash
+cd ~/map-pilot
+MQTT_PUBLISH=true SESSION_RECORD=true MQTT_URL=mqtt://localhost:1883 BAG_WINDOW_SECONDS=0 BAG_FILE_PATH=/home/user/Desktop/enes_ws/bag/aractan.bag npm run server
+```
+
+For the other bag:
+
+```bash
+cd ~/map-pilot
+MQTT_PUBLISH=true SESSION_RECORD=true MQTT_URL=mqtt://localhost:1883 BAG_WINDOW_SECONDS=0 BAG_FILE_PATH=/home/user/Desktop/enes_ws/bag/uzaktan.bag npm run server
+```
+
+When `SESSION_RECORD=true` is enabled, test events and a summary report are
+written under:
+
+```text
+data/sessions/
+```
+
+The MQTT event topics are published under:
+
+```text
+map-pilot/events/<event-type>
+```
+
+The vehicle-oriented MQTT topics are also published for external tools:
+
+```text
+map-pilot/vehicle/health
+map-pilot/vehicle/state
+map-pilot/vehicle/speed
+map-pilot/vehicle/steering
+map-pilot/vehicle/brake
+```
+
+### Computer 2: dashboard
+
+This computer subscribes to the MQTT stream from Computer 1 and visualizes it
+with its own local frontend.
+
+```bash
+cd ~/map-pilot
+LIDAR_SOURCE=mqtt MQTT_URL=mqtt://COMPUTER_1_IP:1883 npm run server
+```
+
+In a second terminal on Computer 2:
+
+```bash
+cd ~/map-pilot
+npm run dev
+```
+
+Open this on Computer 2:
+
+```text
+http://localhost:5173/
+```
+
+Example if Computer 1 is `172.22.78.39`:
+
+```bash
+LIDAR_SOURCE=mqtt MQTT_URL=mqtt://172.22.78.39:1883 npm run server
+```
+
 The Beemobs/DBW messages in those bags are normalized into the Vehicle State panel:
 
 - `/VelocityInformation`: speed in m/s and km/h.

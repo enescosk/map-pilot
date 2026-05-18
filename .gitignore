@@ -34,6 +34,7 @@ Thumbs.db
 
 # ROS bag files (usually large)
 *.bag
+data/sessions/
 
 # Temp
 *.tmp

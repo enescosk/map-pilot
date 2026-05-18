@@ -1208,6 +1208,22 @@ button:hover {
   z-index: 1;
 }
 
+.timeline-wrapper.live::after {
+  background: linear-gradient(90deg, rgba(34, 197, 94, 0.16), rgba(56, 189, 248, 0.2));
+  border: 1px solid rgba(34, 197, 94, 0.24);
+  border-radius: 999px;
+  content: "";
+  height: 10px;
+  left: 0;
+  position: absolute;
+  right: 0;
+}
+
+.timeline-wrapper.live .timeline-control {
+  opacity: 0.25;
+  pointer-events: none;
+}
+
 .event-marker {
   border-radius: 4px;
   box-shadow: 0 0 6px rgba(0, 0, 0, 0.8);
