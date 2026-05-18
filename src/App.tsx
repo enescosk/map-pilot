@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import ControlPanel from "./components/ControlPanel";
 import DecisionLogPanel from "./components/DecisionLogPanel";
+import steeringWheelImage from "./assets/steering-wheel.png";
 import "./App.css";
 
 const WS_URL =
@@ -784,9 +785,7 @@ function VehicleCockpit({ telemetry, time }: { telemetry: TelemetryState; time?:
             <em>target {formatNumber(vehicle.targetSteeringAngle, 0)}°</em>
           </div>
           <div className="steering-wheel-widget" style={steeringStyle} aria-label="Steering angle">
-            <div className="steering-wheel">
-              <span />
-            </div>
+            <img className="steering-wheel" src={steeringWheelImage} alt="" aria-hidden="true" />
           </div>
           <div className="cockpit-metric">
             <span>Brake</span>
@@ -1954,6 +1953,14 @@ function App() {
   const isLiveMqtt = backendSource === "mqtt";
   const secondsSincePacket = lastPacketAt > 0 ? Math.max(0, Math.round((nowMs - lastPacketAt) / 1000)) : 0;
   const streamIsFresh = backendConnected && lastPacketAt > 0 && secondsSincePacket <= 3;
+  const liveBannerState = !backendConnected ? "offline" : streamIsFresh ? "live" : "stale";
+  const liveBannerText = !backendConnected
+    ? "Backend offline - dashboard is not receiving data"
+    : streamIsFresh
+      ? `Live stream healthy - last packet ${secondsSincePacket}s ago`
+      : lastPacketAt > 0
+        ? `Waiting for fresh data - last packet ${secondsSincePacket}s ago`
+        : "Connected, waiting for first data packet";
   const currentSeconds = Math.max(0, timeStringToSeconds(bagStatus.currentTime) - timeStringToSeconds(bagStatus.startTime));
   const durationSeconds = Number(bagStatus.durationSeconds || 0);
   const playbackRatio = pendingSeekRatio ?? (durationSeconds > 0 ? Math.min(currentSeconds / durationSeconds, 1) : 0);
@@ -2053,6 +2060,11 @@ function App() {
           <button type="button" onClick={() => sendPlaybackCommand("stop-lidar")}>Pause</button>
         </div>
       </header>
+
+      <section className={`live-banner ${liveBannerState}`} aria-live="polite">
+        <strong>{isLiveMqtt ? "MQTT Live Mode" : "Playback Mode"}</strong>
+        <span>{liveBannerText}</span>
+      </section>
 
       <section className={`inspector-grid mode-${mode}`}>
         <aside className="hud-left">

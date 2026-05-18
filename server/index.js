@@ -63,6 +63,7 @@ function createSessionRecorder() {
   const id = startedAt.toISOString().replace(/[:.]/g, "-");
   const eventPath = path.join(SESSION_DIRECTORY, `${id}.jsonl`);
   const reportPath = path.join(SESSION_DIRECTORY, `${id}-report.json`);
+  const htmlReportPath = path.join(SESSION_DIRECTORY, `${id}-report.html`);
   const stream = fs.createWriteStream(eventPath, { flags: "a" });
   const countsByType = {};
   const countsByTopic = {};
@@ -115,9 +116,11 @@ function createSessionRecorder() {
   function finish() {
     summary.endedAt = new Date().toISOString();
     fs.writeFileSync(reportPath, `${JSON.stringify(summary, null, 2)}\n`);
+    fs.writeFileSync(htmlReportPath, renderSessionReportHtml(summary));
     stream.end();
     console.log(`Session events saved: ${eventPath}`);
     console.log(`Session report saved: ${reportPath}`);
+    console.log(`Session HTML report saved: ${htmlReportPath}`);
   }
 
   console.log(`Session recording enabled: ${eventPath}`);
@@ -125,6 +128,81 @@ function createSessionRecorder() {
     record,
     finish,
   };
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function renderRows(entries) {
+  return Object.entries(entries)
+    .sort((left, right) => right[1] - left[1])
+    .map(([key, value]) => `<tr><td>${escapeHtml(key)}</td><td>${Number(value).toLocaleString()}</td></tr>`)
+    .join("");
+}
+
+function renderSessionReportHtml(summary) {
+  const durationSeconds = summary.endedAt
+    ? Math.max(0, Math.round((new Date(summary.endedAt).getTime() - new Date(summary.startedAt).getTime()) / 1000))
+    : 0;
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MapPilot Session Report</title>
+  <style>
+    body { background: #0f172a; color: #e5edf6; font-family: Inter, Arial, sans-serif; margin: 0; padding: 32px; }
+    main { margin: 0 auto; max-width: 1040px; }
+    h1 { margin: 0 0 8px; }
+    .muted { color: #94a3b8; }
+    .grid { display: grid; gap: 16px; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 24px 0; }
+    .card { background: #111827; border: 1px solid #334155; border-radius: 10px; padding: 16px; }
+    .card span { color: #94a3b8; display: block; font-size: 12px; text-transform: uppercase; }
+    .card strong { display: block; font-size: 28px; margin-top: 8px; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border-bottom: 1px solid #334155; padding: 10px 8px; text-align: left; }
+    th { color: #7dd3fc; font-size: 12px; text-transform: uppercase; }
+    .two-col { display: grid; gap: 20px; grid-template-columns: 1fr 1fr; }
+    @media (max-width: 800px) { .grid, .two-col { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>MapPilot Session Report</h1>
+    <p class="muted">${escapeHtml(summary.id)}</p>
+    <div class="grid">
+      <div class="card"><span>Total messages</span><strong>${summary.totalMessages.toLocaleString()}</strong></div>
+      <div class="card"><span>Telemetry messages</span><strong>${summary.telemetryMessages.toLocaleString()}</strong></div>
+      <div class="card"><span>Max speed</span><strong>${Number(summary.maxSpeedKmh).toFixed(1)} km/h</strong></div>
+      <div class="card"><span>Duration</span><strong>${durationSeconds}s</strong></div>
+    </div>
+    <div class="card">
+      <p><strong>Source:</strong> ${escapeHtml(summary.source)}</p>
+      <p><strong>Bag:</strong> ${escapeHtml(summary.selectedBagPath)}</p>
+      <p><strong>MQTT:</strong> ${escapeHtml(summary.mqttUrl)} / ${escapeHtml(summary.mqttTopicRoot)}</p>
+      <p><strong>Started:</strong> ${escapeHtml(summary.startedAt)} &nbsp; <strong>Ended:</strong> ${escapeHtml(summary.endedAt)}</p>
+    </div>
+    <div class="two-col" style="margin-top: 20px;">
+      <section class="card">
+        <h2>Messages by Type</h2>
+        <table><thead><tr><th>Type</th><th>Count</th></tr></thead><tbody>${renderRows(summary.countsByType)}</tbody></table>
+      </section>
+      <section class="card">
+        <h2>Messages by Topic</h2>
+        <table><thead><tr><th>Topic</th><th>Count</th></tr></thead><tbody>${renderRows(summary.countsByTopic)}</tbody></table>
+      </section>
+    </div>
+  </main>
+</body>
+</html>
+`;
 }
 
 function publishJsonTopic(topic, payload, options = {}) {

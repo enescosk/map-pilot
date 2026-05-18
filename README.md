@@ -41,6 +41,28 @@ computer should run the monitoring dashboard.
 
 This computer has the bag files and publishes recorded vehicle data to MQTT.
 
+Terminal 1:
+
+```bash
+cd ~/map-pilot
+npm run mqtt-broker
+```
+
+Terminal 2:
+
+```bash
+cd ~/map-pilot
+npm run vehicle-sim
+```
+
+You can also pass a bag file:
+
+```bash
+npm run vehicle-sim -- /home/user/Desktop/enes_ws/bag/uzaktan.bag
+```
+
+Equivalent manual command:
+
 ```bash
 cd ~/map-pilot
 MQTT_PUBLISH=true SESSION_RECORD=true MQTT_URL=mqtt://localhost:1883 BAG_WINDOW_SECONDS=0 BAG_FILE_PATH=/home/user/Desktop/enes_ws/bag/aractan.bag npm run server
@@ -58,6 +80,14 @@ written under:
 
 ```text
 data/sessions/
+```
+
+Each session writes JSONL events, a JSON summary, and an HTML report:
+
+```text
+data/sessions/<session-id>.jsonl
+data/sessions/<session-id>-report.json
+data/sessions/<session-id>-report.html
 ```
 
 The MQTT event topics are published under:
@@ -80,6 +110,21 @@ map-pilot/vehicle/brake
 
 This computer subscribes to the MQTT stream from Computer 1 and visualizes it
 with its own local frontend.
+
+Terminal 1:
+
+```bash
+cd ~/map-pilot
+npm run dashboard-backend -- COMPUTER_1_IP
+```
+
+Example:
+
+```bash
+npm run dashboard-backend -- 172.22.78.39
+```
+
+Equivalent manual command:
 
 ```bash
 cd ~/map-pilot

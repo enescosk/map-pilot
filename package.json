@@ -9,6 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "mqtt-broker": "node server/mqttBroker.js",
+    "vehicle-sim": "bash scripts/start-vehicle-sim.sh",
+    "dashboard-backend": "bash scripts/start-dashboard.sh",
     "server": "node server/index.js"
   },
   "dependencies": {

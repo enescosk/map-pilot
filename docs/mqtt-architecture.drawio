@@ -1,0 +1,90 @@
+<mxfile host="app.diagrams.net" modified="2026-05-18T00:00:00.000Z" agent="Codex" version="24.7.17">
+  <diagram id="map-pilot-mqtt-architecture" name="MapPilot MQTT Architecture">
+    <mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="MapPilot - MQTT Based Live Vehicle Data Simulation" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=26;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="360" y="30" width="880" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="Recorded ROS bag data is replayed as live vehicle telemetry over MQTT, then visualized on a separate dashboard computer." style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontColor=#475569;" vertex="1" parent="1">
+          <mxGeometry x="320" y="70" width="960" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="vehicleBox" value="Computer 1&#xa;Vehicle Simulator / Publisher" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e0f2fe;strokeColor=#0284c7;fontSize=16;fontStyle=1;arcSize=12;" vertex="1" parent="1">
+          <mxGeometry x="70" y="150" width="390" height="610" as="geometry" />
+        </mxCell>
+        <mxCell id="dashboardBox" value="Computer 2&#xa;Monitoring Dashboard / Subscriber" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ecfdf5;strokeColor=#059669;fontSize=16;fontStyle=1;arcSize=12;" vertex="1" parent="1">
+          <mxGeometry x="1130" y="150" width="390" height="610" as="geometry" />
+        </mxCell>
+
+        <mxCell id="bagFiles" value="ROS bag files&#xa;~/Desktop/enes_ws/bag&#xa;aractan.bag / uzaktan.bag" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#38bdf8;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="115" y="220" width="300" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="bagReader" value="Node.js Backend&#xa;npm run server&#xa;rosbag reader + normalizer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8fafc;strokeColor=#0284c7;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="115" y="360" width="300" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="mqttPublish" value="MQTT Publisher&#xa;MQTT_PUBLISH=true&#xa;SESSION_RECORD=true" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8fafc;strokeColor=#0284c7;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="115" y="500" width="300" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="sessionRecord" value="Session recording&#xa;data/sessions/*.jsonl&#xa;data/sessions/*-report.json" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7ed;strokeColor=#f97316;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="115" y="640" width="300" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="broker" value="MQTT Broker&#xa;npm run mqtt-broker&#xa;mqtt://Computer_1_IP:1883" style="shape=cylinder3d;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#fef9c3;strokeColor=#ca8a04;fontSize=15;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="625" y="300" width="350" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="topics" value="MQTT topics&#xa;map-pilot/events/&lt;event-type&gt;&#xa;map-pilot/vehicle/health&#xa;map-pilot/vehicle/state&#xa;map-pilot/vehicle/speed&#xa;map-pilot/vehicle/steering&#xa;map-pilot/vehicle/brake" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffbeb;strokeColor=#d97706;fontSize=13;align=left;spacingLeft=18;" vertex="1" parent="1">
+          <mxGeometry x="625" y="520" width="350" height="160" as="geometry" />
+        </mxCell>
+
+        <mxCell id="mqttSubscribe" value="Node.js Backend&#xa;LIDAR_SOURCE=mqtt&#xa;MQTT subscriber" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8fafc;strokeColor=#059669;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="1175" y="230" width="300" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="wsBridge" value="WebSocket bridge&#xa;ws://localhost:4000&#xa;browser transport" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8fafc;strokeColor=#059669;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="1175" y="380" width="300" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="dashboard" value="React + Vite Dashboard&#xa;http://localhost:5173&#xa;Live MQTT stream UI" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#22c55e;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="1175" y="530" width="300" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="visuals" value="Visualized outputs&#xa;speed / steering / brake / battery&#xa;LiDAR / camera / events&#xa;last packet freshness" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0fdf4;strokeColor=#16a34a;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="1175" y="670" width="300" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edgeBagReader" value="read + replay" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0284c7;fontSize=12;endArrow=block;endFill=1;" edge="1" parent="1" source="bagFiles" target="bagReader">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edgeReaderPublisher" value="normalized packets" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0284c7;fontSize=12;endArrow=block;endFill=1;" edge="1" parent="1" source="bagReader" target="mqttPublish">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edgePublisherRecord" value="test log" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#f97316;fontSize=12;endArrow=block;endFill=1;" edge="1" parent="1" source="mqttPublish" target="sessionRecord">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edgePublisherBroker" value="MQTT publish" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ca8a04;fontSize=13;fontStyle=1;endArrow=block;endFill=1;" edge="1" parent="1" source="mqttPublish" target="broker">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="520" y="545" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edgeBrokerTopics" value="routes messages" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ca8a04;fontSize=12;endArrow=block;endFill=1;" edge="1" parent="1" source="broker" target="topics">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edgeBrokerSubscriber" value="MQTT subscribe" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ca8a04;fontSize=13;fontStyle=1;endArrow=block;endFill=1;" edge="1" parent="1" source="broker" target="mqttSubscribe">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edgeSubWs" value="dashboard packets" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#059669;fontSize=12;endArrow=block;endFill=1;" edge="1" parent="1" source="mqttSubscribe" target="wsBridge">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edgeWsDash" value="WebSocket" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#059669;fontSize=12;endArrow=block;endFill=1;" edge="1" parent="1" source="wsBridge" target="dashboard">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edgeDashVisuals" value="render + evaluate" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#16a34a;fontSize=12;endArrow=block;endFill=1;" edge="1" parent="1" source="dashboard" target="visuals">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="note" value="Important distinction: ROS bag playback simulates live vehicle data. In real vehicle tests, the bag reader is replaced by the actual vehicle data publisher; the MQTT subscriber/dashboard side stays the same." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f5f9;strokeColor=#64748b;fontSize=13;align=left;spacingLeft=14;" vertex="1" parent="1">
+          <mxGeometry x="525" y="735" width="550" height="75" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
