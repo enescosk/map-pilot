@@ -636,7 +636,7 @@ function normalizeVehicleTelemetry(message, type, topic) {
   };
 }
 
-function normalizeFrame(frame) {
+export function normalizeFrame(frame) {
   const message = frame.message || frame.msg || frame.payload || frame;
   const type = frame.type || frame.msgType || "";
   const topic = frame.topic || "unknown";

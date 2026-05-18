@@ -17,6 +17,64 @@ npm run server
 
 The frontend connects to `ws://localhost:4000`.
 
+## Live Vehicle MQTT Architecture
+
+For real vehicle tests, do not use `rosbag play`. The vehicle computer reads
+live ROS topics from the running vehicle stack through `rosbridge_server` and
+publishes normalized telemetry to MQTT. The dashboard computer subscribes to
+MQTT and keeps the existing React dashboard flow.
+
+### Vehicle computer
+
+Start a MQTT broker. You can use the bundled development broker:
+
+```bash
+npm run mqtt-broker
+```
+
+In another terminal, subscribe to live vehicle topics and publish them to MQTT:
+
+```bash
+ROSBRIDGE_URL=ws://localhost:9090 MQTT_URL=mqtt://localhost:1883 npm run vehicle-live
+```
+
+If the topic list differs on the vehicle, override it with `VEHICLE_TOPICS`:
+
+```bash
+VEHICLE_TOPICS=/VelocityInformation,/eps_response,/EHB_BrakingResponse,/steer_control,/brake_control ROSBRIDGE_URL=ws://localhost:9090 MQTT_URL=mqtt://localhost:1883 npm run vehicle-live
+```
+
+Published MQTT topics:
+
+```text
+map-pilot/events/<event-type>
+map-pilot/vehicle/health
+map-pilot/vehicle/state
+map-pilot/vehicle/speed
+map-pilot/vehicle/steering
+map-pilot/vehicle/brake
+```
+
+### Dashboard computer
+
+Subscribe to the vehicle computer's MQTT broker:
+
+```bash
+MQTT_URL=mqtt://VEHICLE_COMPUTER_IP:1883 npm run dashboard-mqtt
+```
+
+In another terminal:
+
+```bash
+npm run dev
+```
+
+Open:
+
+```text
+http://localhost:5173/
+```
+
 ## Desktop `enes_ws` Bag Playback
 
 The backend now defaults to the ROS1 bags in `~/Desktop/enes_ws/bag` and streams them into the cockpit:

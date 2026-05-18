@@ -5,6 +5,10 @@ import ControlPanel from "./components/ControlPanel";
 import DecisionLogPanel from "./components/DecisionLogPanel";
 import "./App.css";
 
+const WS_URL =
+  import.meta.env.VITE_WS_URL ||
+  `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.hostname}:4000`;
+
 export type WorkspaceMode = "perception" | "control" | "debug";
 
 export type LidarReading = {
@@ -1839,6 +1843,7 @@ function TopicPanel({ topics, latest }: { topics: BagTopicSummary[]; latest?: La
 function App() {
   const [mode, setMode] = useState<WorkspaceMode>("perception");
   const [backendConnected, setBackendConnected] = useState(false);
+  const [backendSource, setBackendSource] = useState("none");
   const [lidarReadings, setLidarReadings] = useState<LidarReading[]>([]);
   const [pointClouds, setPointClouds] = useState<Record<string, LidarCloudState>>({});
   const [activePointCloudTopic, setActivePointCloudTopic] = useState<string>("");
@@ -1987,7 +1992,7 @@ function App() {
         return;
       }
 
-      const socket = new WebSocket("ws://localhost:4000");
+      const socket = new WebSocket(WS_URL);
       socketRef.current = socket;
 
       socket.addEventListener("open", () => {
@@ -2010,6 +2015,18 @@ function App() {
         if (packet.type === "reset-playback") {
           resetPlaybackState();
           setSelectedBagPath(packet.path || "");
+        }
+
+        if (packet.type === "status") {
+          setBackendSource(packet.source || "unknown");
+          if (packet.source === "mqtt" || packet.source === "vehicle-ros") {
+            setBagStatus((prev) => ({
+              ...prev,
+              connected: Boolean(packet.connected),
+              playing: Boolean(packet.connected),
+              source: packet.source,
+            }));
+          }
         }
 
         if (packet.type === "scan" && (Array.isArray(packet.readings) || packet.scan)) {
@@ -2250,6 +2267,7 @@ function App() {
   }, [cockpitEvents]);
 
   const bagName = useMemo(() => bagStatus.path.split("/").at(-1) || "2025-07-21-16-54-43.bag", [bagStatus.path]);
+  const isLiveSource = backendSource === "mqtt" || backendSource === "vehicle-ros";
   const currentSeconds = Math.max(0, timeStringToSeconds(bagStatus.currentTime) - timeStringToSeconds(bagStatus.startTime));
   const durationSeconds = Number(bagStatus.durationSeconds || 0);
   const playbackRatio = pendingSeekRatio ?? (durationSeconds > 0 ? Math.min(currentSeconds / durationSeconds, 1) : 0);
@@ -2264,6 +2282,10 @@ function App() {
   }
 
   function seekPlayback(ratio: number) {
+    if (isLiveSource) {
+      return;
+    }
+
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       setPendingSeekRatio(undefined);
       pendingPointCloudsRef.current.clear();
@@ -2313,9 +2335,9 @@ function App() {
         </div>
         <label className="bag-picker">
           <span>Bag</span>
-          <select value={selectedBagPath} onChange={(event) => loadBag(event.currentTarget.value)}>
+          <select value={selectedBagPath} onChange={(event) => loadBag(event.currentTarget.value)} disabled={isLiveSource}>
             {bagFiles.length === 0 ? (
-              <option value="">No .bag files found</option>
+              <option value="">{isLiveSource ? "Live vehicle stream" : "No .bag files found"}</option>
             ) : bagFiles.map((file) => (
               <option key={file.path} value={file.path}>
                 {file.name} ({formatFileSize(file.size)})
@@ -2331,6 +2353,9 @@ function App() {
         <div className="top-actions">
           <span className={backendConnected ? "status-pill good" : "status-pill bad"}>
             {backendConnected ? "Backend online" : "Backend offline"}
+          </span>
+          <span className={isLiveSource ? "status-pill good" : "status-pill muted"}>
+            {isLiveSource ? `Live source: ${backendSource}` : "Bag playback"}
           </span>
           <span className={bagStatus.playing ? "status-pill good" : "status-pill muted"}>
             {bagStatus.playing ? "Playing" : "Paused"}
@@ -2382,19 +2407,19 @@ function App() {
       </section>
 
       <footer className="playback-bar">
-        <span>{formatDuration(currentSeconds)} / {formatDuration(durationSeconds)}</span>
+        <span>{isLiveSource ? "Live vehicle stream" : `${formatDuration(currentSeconds)} / ${formatDuration(durationSeconds)}`}</span>
         <div className="playback-controls" aria-label="Playback controls">
-          <button type="button" onClick={() => seekPlaybackBySeconds(-10)} disabled={durationSeconds <= 0}>
+          <button type="button" onClick={() => seekPlaybackBySeconds(-10)} disabled={isLiveSource || durationSeconds <= 0}>
             -10s
           </button>
           <button
             type="button"
             onClick={() => sendPlaybackCommand(bagStatus.playing ? "stop-lidar" : "start-lidar")}
-            disabled={!backendConnected}
+            disabled={!backendConnected || isLiveSource}
           >
-            {bagStatus.playing ? "Pause" : "Play"}
+            {isLiveSource ? "Live" : bagStatus.playing ? "Pause" : "Play"}
           </button>
-          <button type="button" onClick={() => seekPlaybackBySeconds(10)} disabled={durationSeconds <= 0}>
+          <button type="button" onClick={() => seekPlaybackBySeconds(10)} disabled={isLiveSource || durationSeconds <= 0}>
             +10s
           </button>
         </div>
@@ -2402,6 +2427,7 @@ function App() {
           <input
             aria-label="Playback position"
             className="timeline-control"
+            disabled={isLiveSource}
             max="1000"
             min="0"
             type="range"
@@ -2411,7 +2437,7 @@ function App() {
             onKeyUp={(event) => commitPreviewSeek(Number(event.currentTarget.value) / 1000)}
             onPointerUp={(event) => commitPreviewSeek(Number(event.currentTarget.value) / 1000)}
           />
-          {durationSeconds > 0 && cockpitEvents.map((event) => {
+          {!isLiveSource && durationSeconds > 0 && cockpitEvents.map((event) => {
             const ratio = (event.timestamp - timeStringToSeconds(bagStatus.startTime)) / durationSeconds;
             if (ratio < 0 || ratio > 1) return null;
             return (

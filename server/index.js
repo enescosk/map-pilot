@@ -2,25 +2,127 @@ import { WebSocketServer } from "ws";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import mqtt from "mqtt";
 import { createBagPlaybackSource } from "./sources/bagPlaybackSource.js";
 import { createDirectLidarSource } from "./sources/directLidarSource.js";
+import { createMqttBridgeSource } from "./sources/mqttBridgeSource.js";
 import { createRosBridgeLidarSource } from "./sources/rosBridgeLidarSource.js";
+import { createVehicleRosSource } from "./sources/vehicleRosSource.js";
 
 const WS_PORT = Number(process.env.WS_PORT || 4000);
 const LIDAR_SOURCE = process.env.LIDAR_SOURCE || "bag";
 const BAG_DIRECTORY = process.env.BAG_DIRECTORY || path.join(os.homedir(), "Desktop", "enes_ws", "bag");
 const DEFAULT_BAG_FILE_PATH = process.env.BAG_FILE_PATH || findBagFiles()[0]?.path || "";
+const MQTT_URL = process.env.MQTT_URL || "mqtt://localhost:1883";
+const MQTT_TOPIC_ROOT = process.env.MQTT_TOPIC_ROOT || "map-pilot";
+const MQTT_PUBLISH = process.env.MQTT_PUBLISH === "true";
+const AUTO_START_SOURCE = process.env.AUTO_START_SOURCE === "true" || MQTT_PUBLISH || LIDAR_SOURCE === "mqtt";
 
 const wss = new WebSocketServer({ port: WS_PORT });
 let selectedBagPath = DEFAULT_BAG_FILE_PATH;
 let lidarSource;
+let mqttClient;
+
+if (MQTT_PUBLISH) {
+  mqttClient = mqtt.connect(MQTT_URL, {
+    clientId: `map-pilot-vehicle-${Math.random().toString(16).slice(2)}`,
+    reconnectPeriod: 1000,
+  });
+
+  mqttClient.on("connect", () => {
+    console.log(`MQTT publisher connected to ${MQTT_URL}`);
+  });
+
+  mqttClient.on("error", (error) => {
+    console.error("MQTT publisher error:", error.message);
+  });
+}
 
 function broadcast(message) {
   const payload = JSON.stringify(message);
+  publishMqtt(message, payload);
+
   for (const client of wss.clients) {
     if (client.readyState === 1) {
       client.send(payload);
     }
+  }
+}
+
+function publishMqtt(message, payload) {
+  if (!mqttClient?.connected) {
+    return;
+  }
+
+  const eventType = typeof message.type === "string" ? message.type : "message";
+  mqttClient.publish(`${MQTT_TOPIC_ROOT}/events/${eventType}`, payload);
+
+  if (message.type === "status") {
+    mqttClient.publish(`${MQTT_TOPIC_ROOT}/vehicle/health`, JSON.stringify({
+      connected: Boolean(message.connected),
+      source: message.source || "unknown",
+      topic: message.topic || "",
+      publishedAt: new Date().toISOString(),
+    }), { retain: true });
+  }
+
+  if (message.type === "telemetry" && message.telemetry) {
+    publishVehicleTelemetry(message);
+  }
+}
+
+function publishJsonTopic(topic, payload, options = {}) {
+  mqttClient?.publish(`${MQTT_TOPIC_ROOT}/${topic}`, JSON.stringify(payload), options);
+}
+
+function publishVehicleTelemetry(message) {
+  const telemetry = message.telemetry;
+  const vehicle = telemetry.vehicle || {};
+  const base = {
+    source: message.source || "unknown",
+    sourceTopic: message.topic || "",
+    time: message.time || "",
+    publishedAt: new Date().toISOString(),
+  };
+
+  if (typeof telemetry.speed === "number" || typeof vehicle.speedKmh === "number") {
+    publishJsonTopic("vehicle/speed", {
+      ...base,
+      speedMps: telemetry.speed,
+      speedKmh: vehicle.speedKmh ?? (typeof telemetry.speed === "number" ? Number((telemetry.speed * 3.6).toFixed(2)) : undefined),
+    });
+  }
+
+  if (typeof vehicle.steeringAngle === "number" || typeof vehicle.targetSteeringAngle === "number") {
+    publishJsonTopic("vehicle/steering", {
+      ...base,
+      steeringAngle: vehicle.steeringAngle,
+      targetSteeringAngle: vehicle.targetSteeringAngle,
+      steeringSpeed: vehicle.steeringSpeed,
+      steeringTorque: vehicle.steeringTorque,
+    });
+  }
+
+  if (typeof vehicle.brakePressure === "number" || typeof vehicle.brakePercent === "number") {
+    publishJsonTopic("vehicle/brake", {
+      ...base,
+      brakePressure: vehicle.brakePressure,
+      targetBrakePressure: vehicle.targetBrakePressure,
+      brakePercent: vehicle.brakePercent,
+      handbrake: vehicle.handbrake,
+    });
+  }
+
+  if (vehicle.mode || vehicle.gear !== undefined || vehicle.batterySoc !== undefined || vehicle.ignition !== undefined) {
+    publishJsonTopic("vehicle/state", {
+      ...base,
+      mode: vehicle.mode,
+      gear: vehicle.gear,
+      batterySoc: vehicle.batterySoc,
+      batteryVoltage: vehicle.batteryVoltage,
+      ignition: vehicle.ignition,
+      epsFault: vehicle.epsFault,
+    }, { retain: true });
   }
 }
 
@@ -59,6 +161,18 @@ function createLidarSource() {
     });
   }
 
+  if (LIDAR_SOURCE === "vehicle-ros") {
+    return createVehicleRosSource({
+      emit: broadcast,
+    });
+  }
+
+  if (LIDAR_SOURCE === "mqtt") {
+    return createMqttBridgeSource({
+      emit: broadcast,
+    });
+  }
+
   return createDirectLidarSource({
     emit: broadcast,
   });
@@ -83,6 +197,9 @@ function broadcastBagList(ws) {
 }
 
 setLidarSource(createLidarSource());
+if (AUTO_START_SOURCE) {
+  lidarSource.start();
+}
 
 wss.on("connection", (ws) => {
   console.log("Frontend connected to MapPilot backend");
@@ -134,6 +251,9 @@ wss.on("listening", () => {
   console.log(`MapPilot backend listening on ws://localhost:${WS_PORT}`);
   console.log(`LiDAR source: ${LIDAR_SOURCE}`);
   console.log(`Bag directory: ${BAG_DIRECTORY}`);
+  if (MQTT_PUBLISH) {
+    console.log(`MQTT publish: ${MQTT_URL} -> ${MQTT_TOPIC_ROOT}/events/<type>`);
+  }
   if (selectedBagPath) {
     console.log(`Selected bag: ${selectedBagPath}`);
   }
