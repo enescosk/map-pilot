@@ -1,8 +1,8 @@
 import net from "node:net";
-import aedes from "aedes";
+import { Aedes } from "aedes";
 
 const MQTT_PORT = Number(process.env.MQTT_PORT || 1883);
-const broker = aedes();
+const broker = await Aedes.createBroker();
 const server = net.createServer(broker.handle);
 
 server.listen(MQTT_PORT, "0.0.0.0", () => {
