@@ -31,7 +31,9 @@ const LIDAR_SOURCE = process.env.LIDAR_SOURCE || "bag";
 const BAG_DIRECTORY = process.env.BAG_DIRECTORY || path.join(os.homedir(), "Desktop", "enes_ws", "bag");
 const DEFAULT_BAG_FILE_PATH = process.env.BAG_FILE_PATH || findBagFiles()[0]?.path || "";
 const MQTT_PUBLISH = process.env.MQTT_PUBLISH === "true";
-const AUTO_START_SOURCE = process.env.AUTO_START_SOURCE === "true" || MQTT_PUBLISH || LIDAR_SOURCE === "mqtt";
+const AUTO_START_SOURCE =
+  process.env.AUTO_START_SOURCE === "true" ||
+  ["mqtt", "ros", "vehicle-ros"].includes(LIDAR_SOURCE);
 
 const wss = new WebSocketServer({ port: WS_PORT });
 let selectedBagPath = DEFAULT_BAG_FILE_PATH;

@@ -1,7 +1,25 @@
 import mqtt from "mqtt";
+import { normalizeFrame } from "../normalizers/index.js";
+import { rosTimeToString } from "../normalizers/helpers.js";
 
 const MQTT_URL = process.env.MQTT_URL || "mqtt://localhost:1883";
 const MQTT_TOPIC_ROOT = process.env.MQTT_TOPIC_ROOT || "map-pilot";
+const MQTT_EVENTS_TOPIC = `${MQTT_TOPIC_ROOT}/events/#`;
+const MQTT_RAW_TOPICS = (process.env.MQTT_RAW_TOPICS || `${MQTT_TOPIC_ROOT}/raw/#`)
+  .split(",")
+  .map((topic) => topic.trim())
+  .filter(Boolean);
+
+function topicFromRawMqttTopic(mqttTopic) {
+  const rawPrefix = `${MQTT_TOPIC_ROOT}/raw`;
+  if (mqttTopic === rawPrefix) {
+    return "unknown";
+  }
+  if (mqttTopic.startsWith(`${rawPrefix}/`)) {
+    return `/${mqttTopic.slice(rawPrefix.length + 1)}`;
+  }
+  return mqttTopic;
+}
 
 export function createMqttBridgeSource({ emit }) {
   let client;
@@ -12,7 +30,7 @@ export function createMqttBridgeSource({ emit }) {
       type: "status",
       connected,
       source: "mqtt",
-      topic: `${MQTT_TOPIC_ROOT}/events/#`,
+      topic: [MQTT_EVENTS_TOPIC, ...MQTT_RAW_TOPICS].join(", "),
     };
   }
 
@@ -29,12 +47,26 @@ export function createMqttBridgeSource({ emit }) {
     client.on("connect", () => {
       connected = true;
       emit(getStatus());
-      client.subscribe(`${MQTT_TOPIC_ROOT}/events/#`);
+      client.subscribe([MQTT_EVENTS_TOPIC, ...MQTT_RAW_TOPICS]);
     });
 
-    client.on("message", (_topic, payload) => {
+    client.on("message", (topic, payload) => {
       try {
-        emit(JSON.parse(payload.toString()));
+        const parsed = JSON.parse(payload.toString());
+        if (topic.startsWith(`${MQTT_TOPIC_ROOT}/events/`)) {
+          emit(parsed);
+          return;
+        }
+
+        const message = parsed.message || parsed.msg || parsed.payload || parsed;
+        const normalized = normalizeFrame({
+          topic: parsed.topic || topicFromRawMqttTopic(topic),
+          type: parsed.type || parsed.msgType || parsed.messageType || parsed._type || message?._type || "",
+          time: parsed.time || parsed.timestamp || rosTimeToString(message?.header?.stamp),
+          source: "mqtt",
+          message,
+        });
+        emit(normalized);
       } catch (error) {
         emit({ type: "backend-error", message: `Invalid MQTT payload: ${error.message}` });
       }

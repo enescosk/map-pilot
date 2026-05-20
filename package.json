@@ -9,8 +9,10 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "mqtt-broker": "node server/mqttBroker.js",
+    "live-ros": "LIDAR_SOURCE=vehicle-ros npm run server",
     "vehicle-live": "LIDAR_SOURCE=vehicle-ros MQTT_PUBLISH=true npm run server",
     "dashboard-mqtt": "LIDAR_SOURCE=mqtt npm run server",
+    "offline-bag": "LIDAR_SOURCE=bag npm run server",
     "server": "node server/index.js"
   },
   "dependencies": {

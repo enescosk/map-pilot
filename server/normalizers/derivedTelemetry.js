@@ -54,7 +54,7 @@ export function normalizeDerivedTelemetry(message, type, topic, options = {}) {
     if (yaw !== undefined && telemetry.heading === undefined) {
       telemetry.heading = yaw;
     }
-  } else if (lowerType.includes("imu")) {
+  } else if (lowerType.includes("imu") || lowerTopic.includes("imu")) {
     telemetry.acceleration = message.linear_acceleration;
     telemetry.angularVelocity = message.angular_velocity;
     telemetry.orientation = message.orientation;

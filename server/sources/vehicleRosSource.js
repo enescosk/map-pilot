@@ -3,7 +3,7 @@ import { normalizeFrame } from "../normalizers/index.js";
 import { rosTimeToString } from "../normalizers/helpers.js";
 
 const ROSBRIDGE_URL = process.env.ROSBRIDGE_URL || "ws://localhost:9090";
-const VEHICLE_TOPICS = (process.env.VEHICLE_TOPICS || [
+const DEFAULT_LIVE_ROS_TOPICS = [
   "/VelocityInformation",
   "/eps_response",
   "/EHB_BrakingResponse",
@@ -17,10 +17,21 @@ const VEHICLE_TOPICS = (process.env.VEHICLE_TOPICS || [
   "/brake_control",
   "/autonomous_mode_selection",
   "/scan",
+  "/left_laser/scan",
+  "/right_laser/scan",
   "/rslidar_points",
+  "/m1/rslidar_points",
+  "/cloud",
+  "/camera/image_raw",
+  "/out/compressed",
   "/imu/data",
+  "/zed2i/zed_node/imu/data",
+  "/ekf/odometry_earth",
+  "/zed2i/zed_node/odom",
+  "/heading",
   "/navsatfix",
-].join(","))
+];
+const LIVE_ROS_TOPICS = (process.env.LIVE_ROS_TOPICS || process.env.VEHICLE_TOPICS || DEFAULT_LIVE_ROS_TOPICS.join(","))
   .split(",")
   .map((topic) => topic.trim())
   .filter(Boolean);
@@ -35,7 +46,7 @@ export function createVehicleRosSource({ emit }) {
       type: "status",
       connected,
       source: "vehicle-ros",
-      topic: VEHICLE_TOPICS.join(", "),
+      topic: LIVE_ROS_TOPICS.join(", "),
     };
   }
 
@@ -44,7 +55,7 @@ export function createVehicleRosSource({ emit }) {
       return;
     }
 
-    for (const topic of VEHICLE_TOPICS) {
+    for (const topic of LIVE_ROS_TOPICS) {
       rosSocket.send(JSON.stringify({
         op: "subscribe",
         topic,
@@ -58,7 +69,7 @@ export function createVehicleRosSource({ emit }) {
       return;
     }
 
-    for (const topic of VEHICLE_TOPICS) {
+    for (const topic of LIVE_ROS_TOPICS) {
       rosSocket.send(JSON.stringify({
         op: "unsubscribe",
         topic,

@@ -1475,7 +1475,7 @@ function App() {
   }, [backendConnected, sendMessage]);
 
   const bagName = useMemo(() => bagStatus.path.split("/").at(-1) || "2025-07-21-16-54-43.bag", [bagStatus.path]);
-  const isLiveSource = backendSource === "mqtt" || backendSource === "vehicle-ros";
+  const isLiveSource = backendSource === "mqtt" || backendSource === "vehicle-ros" || backendSource === "rosbridge" || backendSource === "direct-serial";
 
   function loadBag(path: string) {
     if (path && sendMessage({ type: "load-bag", path })) {

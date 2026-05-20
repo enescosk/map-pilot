@@ -93,7 +93,13 @@ function normalizeFrameLegacy({ message, type, topic, time, source }) {
     }
   }
 
-  if (lowerType.includes("pointcloud") || lowerTopic.includes("points")) {
+  if (
+    lowerType.includes("pointcloud") ||
+    lowerTopic.includes("points") ||
+    lowerTopic.includes("point_cloud") ||
+    lowerTopic === "/cloud" ||
+    lowerTopic.endsWith("/cloud")
+  ) {
     const readings = message.data ? pointCloud2ToReadings(message) : pointCloudToReadings(message);
     const points = message.data ? pointCloud2ToPoints(message) : message.points || [];
     if (readings.length > 0 || points.length > 0) {
@@ -109,7 +115,7 @@ function normalizeFrameLegacy({ message, type, topic, time, source }) {
     }
   }
 
-  if (lowerType.includes("compressedimage")) {
+  if (lowerType.includes("compressedimage") || lowerTopic.includes("compressed")) {
     const src = compressedImageToSource(message);
     if (src) {
       return {
