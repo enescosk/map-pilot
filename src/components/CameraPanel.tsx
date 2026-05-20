@@ -1,4 +1,4 @@
-import type { CameraStatus } from "../App";
+import type { CameraStatus } from "../types/liveMessages";
 
 type CameraPanelProps = {
   camera: CameraStatus;

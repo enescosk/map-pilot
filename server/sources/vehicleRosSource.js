@@ -92,10 +92,10 @@ export function createVehicleRosSource({ emit }) {
           topic: packet.topic,
           type: packet.msg._type || "",
           time: rosTimeToString(packet.msg.header?.stamp),
+          source: "vehicle-ros",
           message: packet.msg,
         });
 
-        normalized.source = "vehicle-ros";
         emit(normalized);
       } catch (error) {
         emit({ type: "backend-error", message: `Invalid vehicle ROS packet: ${error.message}` });

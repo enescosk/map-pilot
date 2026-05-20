@@ -1,4 +1,9 @@
-import type { DecisionLogEntry } from "../App";
+type DecisionLogEntry = {
+  id: string;
+  time: string;
+  source: string;
+  message: string;
+};
 
 type DecisionLogPanelProps = {
   entries: DecisionLogEntry[];

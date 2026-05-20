@@ -24,18 +24,19 @@ export function normalizeFrame(frame) {
   const type = frame.type || frame.msgType || "";
   const topic = frame.topic || "unknown";
   const time = frame.time || frame.timestamp || "";
+  const source = frame.source || DEFAULT_SOURCE;
 
   // New canonical pipeline for the topics in the topic map (Phase 3 target set).
   // If the topic matches, run extract -> store -> legacy adapter and return.
-  const routed = routeThroughTopicMap({ message, type, topic, time });
+  const routed = routeThroughTopicMap({ message, type, topic, time, source });
   if (routed) {
     return routed;
   }
 
-  return normalizeFrameLegacy({ message, type, topic, time });
+  return normalizeFrameLegacy({ message, type, topic, time, source });
 }
 
-function routeThroughTopicMap({ message, type, topic, time }) {
+function routeThroughTopicMap({ message, type, topic, time, source }) {
   const entry = matchTopicEntry(topic, type);
   if (!entry) {
     return undefined;
@@ -54,7 +55,7 @@ function routeThroughTopicMap({ message, type, topic, time }) {
     return undefined;
   }
 
-  const meta = { sourceName: DEFAULT_SOURCE, sourceTopic: topic, sensorTimestamp: time };
+  const meta = { sourceName: source, sourceTopic: topic, sensorTimestamp: time };
   const { invalid } = telemetryStore.applyUpdate(patch, meta);
   healthRegistry.recordOk(topic, invalid.length);
 
@@ -73,21 +74,21 @@ function routeThroughTopicMap({ message, type, topic, time }) {
 
   return {
     type: "telemetry",
-    source: DEFAULT_SOURCE,
+    source,
     topic,
     time,
     telemetry: legacy,
   };
 }
 
-function normalizeFrameLegacy({ message, type, topic, time }) {
+function normalizeFrameLegacy({ message, type, topic, time, source }) {
   const lowerTopic = topic.toLowerCase();
   const lowerType = type.toLowerCase();
 
   if (lowerType.includes("laserscan") || lowerTopic.includes("scan")) {
     const readings = laserScanToReadings(message);
     if (readings.length > 0) {
-      return { type: "scan", readings, source: DEFAULT_SOURCE, topic, time };
+      return { type: "scan", readings, source, topic, time };
     }
   }
 
@@ -99,7 +100,7 @@ function normalizeFrameLegacy({ message, type, topic, time }) {
         type: "point-cloud",
         readings,
         points,
-        source: DEFAULT_SOURCE,
+        source,
         topic,
         time,
         frameId: message.header?.frame_id || "",
@@ -112,7 +113,7 @@ function normalizeFrameLegacy({ message, type, topic, time }) {
     if (src) {
       return {
         type: "camera-frame",
-        source: DEFAULT_SOURCE,
+        source,
         topic,
         time,
         src,
@@ -127,7 +128,7 @@ function normalizeFrameLegacy({ message, type, topic, time }) {
     if (src) {
       return {
         type: "camera-frame",
-        source: DEFAULT_SOURCE,
+        source,
         topic,
         time,
         src,
@@ -140,7 +141,7 @@ function normalizeFrameLegacy({ message, type, topic, time }) {
   if (lowerType.includes("imu")) {
     return {
       type: "telemetry",
-      source: DEFAULT_SOURCE,
+      source,
       topic,
       time,
       telemetry: {
@@ -154,7 +155,7 @@ function normalizeFrameLegacy({ message, type, topic, time }) {
   if (lowerType.includes("magneticfield") || lowerTopic.includes("mag")) {
     return {
       type: "telemetry",
-      source: DEFAULT_SOURCE,
+      source,
       topic,
       time,
       telemetry: {
@@ -166,7 +167,7 @@ function normalizeFrameLegacy({ message, type, topic, time }) {
   if (lowerType.includes("navsatfix") || lowerTopic.includes("gps") || lowerTopic.includes("navsat")) {
     return {
       type: "telemetry",
-      source: DEFAULT_SOURCE,
+      source,
       topic,
       time,
       telemetry: {
@@ -186,7 +187,7 @@ function normalizeFrameLegacy({ message, type, topic, time }) {
 
     return {
       type: "telemetry",
-      source: DEFAULT_SOURCE,
+      source,
       topic,
       time,
       telemetry: {
@@ -202,7 +203,7 @@ function normalizeFrameLegacy({ message, type, topic, time }) {
   if (vehicleTelemetry) {
     return {
       type: "telemetry",
-      source: DEFAULT_SOURCE,
+      source,
       topic,
       time,
       telemetry: vehicleTelemetry,
@@ -211,7 +212,7 @@ function normalizeFrameLegacy({ message, type, topic, time }) {
 
   return {
     type: "bag-frame",
-    source: DEFAULT_SOURCE,
+    source,
     topic,
     time,
     messageType: type || "unknown",

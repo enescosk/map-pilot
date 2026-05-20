@@ -1,4 +1,4 @@
-import type { LidarReading } from "../App";
+import type { LidarReading } from "../types/liveMessages";
 
 type LidarPanelProps = {
   readings: LidarReading[];

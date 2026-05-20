@@ -1,4 +1,11 @@
-import type { BagFrame, BagStatus } from "../App";
+import type { BagStatus } from "../types/liveMessages";
+
+type BagFrame = {
+  topic: string;
+  time?: string;
+  messageType: string;
+  preview: string;
+};
 
 type BagDetailsPanelProps = {
   status: BagStatus;

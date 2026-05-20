@@ -111,6 +111,48 @@ button:hover {
   background: rgba(148, 163, 184, 0.1);
 }
 
+.topic-health-strip {
+  align-items: center;
+  background: rgba(7, 11, 18, 0.92);
+  border-bottom: 1px solid rgba(56, 189, 248, 0.14);
+  color: #aeb9ca;
+  display: flex;
+  gap: 10px;
+  min-height: 28px;
+  overflow: hidden;
+  padding: 4px 18px;
+  white-space: nowrap;
+}
+
+.topic-health-strip strong,
+.topic-health-strip span {
+  font-size: 0.76rem;
+}
+
+.health-dot {
+  border-radius: 999px;
+  display: inline-block;
+  height: 8px;
+  width: 8px;
+}
+
+.health-dot.fresh {
+  background: #34d399;
+  box-shadow: 0 0 10px rgba(52, 211, 153, 0.6);
+}
+
+.health-dot.missing {
+  background: #64748b;
+}
+
+.source-state.connected {
+  color: #86efac;
+}
+
+.source-state.disconnected {
+  color: #fca5a5;
+}
+
 .inspector-grid {
   display: grid;
   gap: 12px;

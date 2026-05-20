@@ -3,6 +3,17 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import ControlPanel from "./components/ControlPanel";
 import DecisionLogPanel from "./components/DecisionLogPanel";
+import TopicHealthStrip from "./components/TopicHealthStrip";
+import { useBagPlayback } from "./hooks/useBagPlayback";
+import { useCameraFeed } from "./hooks/useCameraFeed";
+import { useDashboardTelemetry } from "./hooks/useDashboardTelemetry";
+import { useLiveTelemetry } from "./hooks/useLiveTelemetry";
+import { usePointCloudBuffer, type PendingPointCloudPacket } from "./hooks/usePointCloudBuffer";
+import { useTopicHealth } from "./hooks/useTopicHealth";
+import type { BagFileOption, BagStatus, BagTopicSummary, CameraFrameMessage, CameraStatus, CameraStreamMessage, LatestFrame, LidarReading, LiveMessage, Point3D, TelemetryMessage } from "./types/liveMessages";
+import type { GpsFix, SeriesPoint, TelemetryState, Vector3 } from "./types/telemetry";
+import { formatBoolean, formatDuration, formatFileSize, formatGear, formatNumber, vectorMagnitude } from "./utils/telemetryFormatters";
+import { timeStringToSeconds } from "./utils/timeLabel";
 import "./App.css";
 
 const WS_URL =
@@ -10,33 +21,6 @@ const WS_URL =
   `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.hostname}:4000`;
 
 export type WorkspaceMode = "perception" | "control" | "debug";
-
-export type LidarReading = {
-  angle: number;
-  distance: number;
-};
-
-export type Point3D = {
-  x: number;
-  y: number;
-  z: number;
-  intensity?: number;
-  seen?: number;
-};
-
-export type CameraStatus = {
-  name?: string;
-  topic: string;
-  isActive: boolean;
-  mode?: string;
-  resolution: string;
-  fps: number;
-  issue?: string;
-  frameSrc?: string;
-  streamUrl?: string;
-  frameCount: number;
-  lastTime?: string;
-};
 
 export type RobotStatus = {
   name: string;
@@ -60,122 +44,9 @@ export type SystemHealthItem = {
   detail: string;
 };
 
-export type DecisionLogEntry = {
-  id: string;
-  time: string;
-  source: string;
-  message: string;
-};
-
-export type CockpitEvent = {
-  id: string;
-  timestamp: number;
-  timeLabel: string;
-  severity: "warning" | "critical" | "info";
-  source: "imu" | "speed" | "system";
-  title: string;
-  description?: string;
-};
-
-export type BagTopicSummary = {
-  topic: string;
-  type: string;
-  count: number;
-  lastTime?: string;
-  sample?: string;
-};
-
-export type BagStatus = {
-  connected: boolean;
-  playing: boolean;
-  source: string;
-  path: string;
-  frameCount: number;
-  cursor: number;
-  topics: BagTopicSummary[];
-  currentTime?: string;
-  startTime?: string;
-  endTime?: string;
-  durationSeconds?: number;
-};
-
-type BagFileOption = {
-  name: string;
-  path: string;
-  size: number;
-  modifiedAt: number;
-};
-
-type Vector3 = {
-  x?: number;
-  y?: number;
-  z?: number;
-};
-
-type GpsFix = {
-  latitude?: number;
-  longitude?: number;
-  altitude?: number;
-};
-
 type GpsTrailPoint = {
   latitude: number;
   longitude: number;
-};
-
-type TelemetryState = {
-  speed: number;
-  acceleration: Vector3;
-  angularVelocity: Vector3;
-  magneticField: Vector3;
-  gps: GpsFix;
-  vehicle: {
-    speedKmh?: number;
-    steeringAngle?: number;
-    steeringSpeed?: number;
-    steeringTorque?: number;
-    targetSteeringAngle?: number;
-    targetSteeringSpeed?: number;
-    epsTemperature?: number;
-    epsWork?: boolean;
-    epsFault?: boolean;
-    brakePressure?: number;
-    targetBrakePressure?: number;
-    brakePedal?: number;
-    brakePercent?: number;
-    brakeFaultLevel?: number;
-    parkingBrake?: boolean;
-    throttleSetSpeedKmh?: number;
-    cruiseActive?: boolean;
-    rpm?: number;
-    tripDistance?: number;
-    gear?: number;
-    batterySoc?: number;
-    batteryVoltage?: number;
-    ignition?: boolean;
-    leftSignal?: boolean;
-    rightSignal?: boolean;
-    emergency?: boolean;
-    handbrake?: boolean;
-    autonomousManualSelect?: boolean;
-    mode?: string;
-  };
-  pose?: {
-    position?: Vector3;
-    orientation?: Vector3 & { w?: number };
-  };
-};
-
-type SeriesPoint = {
-  label: string;
-  value: number;
-};
-
-type LatestFrame = {
-  topic: string;
-  time?: string;
-  messageType: string;
-  preview: string;
 };
 
 export type BagFrame = LatestFrame;
@@ -190,15 +61,6 @@ type LidarCloudState = {
   lastTime?: string;
   filterVersion?: number;
 };
-type PendingPointCloudPacket = {
-  topic: string;
-  points: Point3D[];
-  readings?: LidarReading[];
-  frameId?: string;
-  resolvedFrame?: string;
-  time?: string;
-};
-
 type LidarDebugStats = {
   pointsCount: number;
   sourcePointsCount: number;
@@ -209,9 +71,7 @@ type LidarDebugStats = {
   firstPoints: Point3D[];
 };
 
-const MAX_SERIES_POINTS = 80;
 const MAX_LIDAR_HISTORY_POINTS = 32000;
-const MAX_COCKPIT_EVENTS = 120;
 // Density-controlled rendering: cap the number of points the GPU draws at once.
 // Foxglove-style clarity beats raw point count. Lower = cleaner.
 const MAX_RENDERED_POINT_CLOUD_POINTS = 60000;
@@ -242,91 +102,6 @@ const HEIGHT_COLOR_MAX = 5;
 const RENDER_VOXEL_SIZE = 0.2;
 const ENABLE_LIDAR_CONTOURS = false;
 const LIDAR_FILTER_VERSION = 3;
-
-const emptyTelemetry: TelemetryState = {
-  speed: 0,
-  acceleration: {},
-  angularVelocity: {},
-  magneticField: {},
-  gps: {},
-  vehicle: {},
-};
-
-function vectorMagnitude(vector?: Vector3) {
-  if (!vector) {
-    return 0;
-  }
-
-  return Math.hypot(Number(vector.x || 0), Number(vector.y || 0), Number(vector.z || 0));
-}
-
-function formatNumber(value?: number, digits = 2) {
-  return Number.isFinite(value) ? Number(value).toFixed(digits) : "--";
-}
-
-function timeStringToSeconds(time?: string) {
-  if (!time) {
-    return 0;
-  }
-
-  return Number(time) || 0;
-}
-
-function formatDuration(seconds?: number) {
-  if (!Number.isFinite(seconds)) {
-    return "00:00";
-  }
-
-  const total = Math.max(0, Math.floor(Number(seconds)));
-  const minutes = Math.floor(total / 60);
-  const remainingSeconds = total % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`;
-}
-
-function formatFileSize(bytes?: number) {
-  const size = Number(bytes || 0);
-  if (size >= 1_073_741_824) {
-    return `${(size / 1_073_741_824).toFixed(1)} GB`;
-  }
-  if (size >= 1_048_576) {
-    return `${(size / 1_048_576).toFixed(1)} MB`;
-  }
-  return `${Math.max(0, Math.round(size / 1024))} KB`;
-}
-
-function formatBoolean(value?: boolean) {
-  if (typeof value !== "boolean") {
-    return "--";
-  }
-
-  return value ? "On" : "Off";
-}
-
-function formatGear(value?: number) {
-  switch (Number(value)) {
-    case 0:
-      return "N";
-    case 1:
-      return "D";
-    case 2:
-      return "R";
-    default:
-      return Number.isFinite(value) ? String(value) : "--";
-  }
-}
-
-function timeLabel(time?: string) {
-  if (!time) {
-    return "--";
-  }
-
-  const [, fraction = ""] = time.split(".");
-  return fraction.slice(0, 3) || time.slice(-6);
-}
-
-function pushSeries(series: SeriesPoint[], value: number, label: string) {
-  return [...series, { value, label }].slice(-MAX_SERIES_POINTS);
-}
 
 // =====================================================================
 // LiDAR coordinate helpers (ROS REP-103, matching Foxglove)
@@ -594,21 +369,6 @@ function appendLidarHistory(current: Point3D[], nextPoints: Point3D[]) {
   }
 
   return [...current, ...nextPoints].slice(-MAX_LIDAR_HISTORY_POINTS);
-}
-
-function appendCockpitEvent(events: CockpitEvent[], event: CockpitEvent) {
-  const duplicateWindowSeconds = 1.2;
-  const exists = events.some((current) => (
-    current.source === event.source &&
-    current.title === event.title &&
-    Math.abs(current.timestamp - event.timestamp) < duplicateWindowSeconds
-  ));
-
-  if (exists) {
-    return events;
-  }
-
-  return [...events, event].slice(-MAX_COCKPIT_EVENTS);
 }
 
 /**
@@ -1842,18 +1602,10 @@ function TopicPanel({ topics, latest }: { topics: BagTopicSummary[]; latest?: La
 
 function App() {
   const [mode, setMode] = useState<WorkspaceMode>("perception");
-  const [backendConnected, setBackendConnected] = useState(false);
   const [backendSource, setBackendSource] = useState("none");
   const [lidarReadings, setLidarReadings] = useState<LidarReading[]>([]);
   const [pointClouds, setPointClouds] = useState<Record<string, LidarCloudState>>({});
   const [activePointCloudTopic, setActivePointCloudTopic] = useState<string>("");
-  const [camera, setCamera] = useState<CameraStatus>({
-    topic: "/zed2i/zed_node/rgb/image_rect_color/compressed",
-    isActive: false,
-    resolution: "Waiting",
-    fps: 0,
-    frameCount: 0,
-  });
   const [bagStatus, setBagStatus] = useState<BagStatus>({
     connected: false,
     playing: false,
@@ -1863,149 +1615,79 @@ function App() {
     cursor: 0,
     topics: [],
   });
-  const [telemetry, setTelemetry] = useState<TelemetryState>(emptyTelemetry);
-  const [cockpitEvents, setCockpitEvents] = useState<CockpitEvent[]>([]);
   const [latestFrame, setLatestFrame] = useState<LatestFrame>();
   const [pendingSeekRatio, setPendingSeekRatio] = useState<number | undefined>();
   const [bagFiles, setBagFiles] = useState<BagFileOption[]>([]);
   const [selectedBagPath, setSelectedBagPath] = useState("");
-  const [series, setSeries] = useState({
-    acceleration: [] as SeriesPoint[],
-    angularVelocity: [] as SeriesPoint[],
-    speed: [] as SeriesPoint[],
-    magneticField: [] as SeriesPoint[],
-  });
-  const socketRef = useRef<WebSocket | null>(null);
   const pointCloudsRef = useRef<Record<string, LidarCloudState>>({});
-  const pendingPointCloudsRef = useRef<Map<string, PendingPointCloudPacket>>(new Map());
-  const pointCloudFlushTimerRef = useRef<number | undefined>(undefined);
+  const { topicHealth, handleTopicHealthMessage } = useTopicHealth();
+  const { camera, resetCamera, handleCameraFrame, handleCameraStream } = useCameraFeed();
+  const {
+    telemetry,
+    series,
+    cockpitEvents,
+    decisionLogEntries,
+    handleTelemetryMessage,
+    resetTelemetry,
+  } = useDashboardTelemetry();
 
   useEffect(() => {
     pointCloudsRef.current = pointClouds;
   }, [pointClouds]);
 
-  useEffect(() => {
-    let reconnectTimer: number | undefined;
-    let shouldReconnect = true;
-
-    function scheduleReconnect() {
-      if (!shouldReconnect || reconnectTimer) {
-        return;
+  const handlePointCloudFlush = useCallback((pending: PendingPointCloudPacket[]) => {
+    setPointClouds((prev) => {
+      const next = { ...prev };
+      for (const packet of pending) {
+        const cleanPoints = denoisePointCloud(packet.points, packet.frameId, packet.resolvedFrame);
+        const livePoints = selectStoredLivePoints(cleanPoints);
+        const previous = next[packet.topic] || { points: [], mapPoints: [], frameId: "", resolvedFrame: "" };
+        const packetFrame = packet.resolvedFrame || packet.frameId || "";
+        const frameChanged = previous.resolvedFrame && packetFrame && previous.resolvedFrame !== packetFrame;
+        const previousMapPoints = previous.filterVersion === LIDAR_FILTER_VERSION && !frameChanged ? previous.mapPoints : [];
+        next[packet.topic] = {
+          points: livePoints,
+          mapPoints: mergeLidarMap(previousMapPoints, livePoints),
+          frameId: packet.frameId || previous.frameId || "",
+          resolvedFrame: packet.resolvedFrame || previous.resolvedFrame || "",
+          lastTime: packet.time || previous.lastTime,
+          filterVersion: LIDAR_FILTER_VERSION,
+        };
       }
 
-      reconnectTimer = window.setTimeout(() => {
-        reconnectTimer = undefined;
-        connect();
-      }, 900);
-    }
-
-    function flushPointClouds() {
-      pointCloudFlushTimerRef.current = undefined;
-      const pending = [...pendingPointCloudsRef.current.values()];
-      pendingPointCloudsRef.current.clear();
-      if (pending.length === 0) {
-        return;
-      }
-
-      setPointClouds((prev) => {
-        const next = { ...prev };
-        for (const packet of pending) {
-          const cleanPoints = denoisePointCloud(packet.points, packet.frameId, packet.resolvedFrame);
-          const livePoints = selectStoredLivePoints(cleanPoints);
-          const previous = next[packet.topic] || { points: [], mapPoints: [], frameId: "", resolvedFrame: "" };
-          const packetFrame = packet.resolvedFrame || packet.frameId || "";
-          const frameChanged = previous.resolvedFrame && packetFrame && previous.resolvedFrame !== packetFrame;
-          const previousMapPoints = previous.filterVersion === LIDAR_FILTER_VERSION && !frameChanged ? previous.mapPoints : [];
-          // Live = current frame only. Accumulation in sensor frame piles up at the
-          // origin when the vehicle moves, producing a glowing center blob.
-          // Map mode handles long-term accumulation via voxel merging.
-          next[packet.topic] = {
-            points: livePoints,
-            mapPoints: mergeLidarMap(previousMapPoints, livePoints),
-            frameId: packet.frameId || previous.frameId || "",
-            resolvedFrame: packet.resolvedFrame || previous.resolvedFrame || "",
-            lastTime: packet.time || previous.lastTime,
-            filterVersion: LIDAR_FILTER_VERSION,
-          };
+      const totalMapPoints = Object.values(next).reduce((sum, s) => sum + s.mapPoints.length, 0);
+      if (totalMapPoints > MAX_TOTAL_MAP_POINTS) {
+        const ratio = MAX_TOTAL_MAP_POINTS / totalMapPoints;
+        for (const key of Object.keys(next)) {
+          const s = next[key];
+          if (s.mapPoints.length === 0) continue;
+          const cap = Math.max(1, Math.floor(s.mapPoints.length * ratio));
+          const step = Math.ceil(s.mapPoints.length / cap);
+          next[key] = { ...s, mapPoints: s.mapPoints.filter((_, i) => i % step === 0) };
         }
-
-        // Cross-topic cap: when multiple point-cloud topics accumulate, total
-        // map memory is N * MAX_LIDAR_MAP_POINTS. Scale every topic down
-        // proportionally so the total stays within MAX_TOTAL_MAP_POINTS.
-        const totalMapPoints = Object.values(next).reduce((sum, s) => sum + s.mapPoints.length, 0);
-        if (totalMapPoints > MAX_TOTAL_MAP_POINTS) {
-          const ratio = MAX_TOTAL_MAP_POINTS / totalMapPoints;
-          for (const key of Object.keys(next)) {
-            const s = next[key];
-            if (s.mapPoints.length === 0) continue;
-            const cap = Math.max(1, Math.floor(s.mapPoints.length * ratio));
-            const step = Math.ceil(s.mapPoints.length / cap);
-            next[key] = { ...s, mapPoints: s.mapPoints.filter((_, i) => i % step === 0) };
-          }
-        }
-
-        return next;
-      });
-    }
-
-    function schedulePointCloudFlush() {
-      if (pointCloudFlushTimerRef.current) {
-        return;
       }
 
-      pointCloudFlushTimerRef.current = window.setTimeout(flushPointClouds, POINT_CLOUD_FLUSH_MS);
-    }
+      return next;
+    });
+  }, []);
 
-    function resetPlaybackState() {
-      pendingPointCloudsRef.current.clear();
-      if (pointCloudFlushTimerRef.current) {
-        window.clearTimeout(pointCloudFlushTimerRef.current);
-        pointCloudFlushTimerRef.current = undefined;
-      }
-      setPendingSeekRatio(undefined);
-      setLidarReadings([]);
-      setPointClouds({});
-      setActivePointCloudTopic("");
-      setCockpitEvents([]);
-      setLatestFrame(undefined);
-      setTelemetry(emptyTelemetry);
-      setSeries({
-        acceleration: [],
-        angularVelocity: [],
-        speed: [],
-        magneticField: [],
-      });
-      setCamera((prev) => ({
-        ...prev,
-        isActive: false,
-        frameSrc: "",
-        resolution: "Waiting",
-        fps: 0,
-        frameCount: 0,
-        lastTime: "",
-      }));
-    }
+  const { enqueue: enqueuePointCloud, clear: clearPointCloudBuffer } = usePointCloudBuffer({
+    flushMs: POINT_CLOUD_FLUSH_MS,
+    onFlush: handlePointCloudFlush,
+  });
 
-    function connect() {
-      const existingSocket = socketRef.current;
-      if (existingSocket?.readyState === WebSocket.OPEN || existingSocket?.readyState === WebSocket.CONNECTING) {
-        return;
-      }
+  const resetPlaybackState = useCallback(() => {
+    clearPointCloudBuffer();
+    setPendingSeekRatio(undefined);
+    setLidarReadings([]);
+    setPointClouds({});
+    setActivePointCloudTopic("");
+    setLatestFrame(undefined);
+    resetTelemetry();
+    resetCamera();
+  }, [clearPointCloudBuffer, resetCamera, resetTelemetry]);
 
-      const socket = new WebSocket(WS_URL);
-      socketRef.current = socket;
-
-      socket.addEventListener("open", () => {
-        setBackendConnected(true);
-        socket.send(JSON.stringify({ type: "start-lidar" }));
-        socket.send(JSON.stringify({ type: "list-bags" }));
-      });
-
-      socket.addEventListener("message", (event) => {
-      try {
-        const packet = JSON.parse(event.data);
-        const label = timeLabel(packet.time);
-
+  const handleLiveMessage = useCallback((packet: LiveMessage) => {
         if (packet.type === "bag-list") {
           const files = Array.isArray(packet.files) ? packet.files : [];
           setBagFiles(files);
@@ -2024,7 +1706,7 @@ function App() {
               ...prev,
               connected: Boolean(packet.connected),
               playing: Boolean(packet.connected),
-              source: packet.source,
+              source: packet.source || "unknown",
             }));
           }
         }
@@ -2051,7 +1733,7 @@ function App() {
             topic: t,
             time: packet.time,
             messageType: "LaserScan",
-            preview: `${packet.readings.length} projected scan points`,
+            preview: `${packet.readings?.length || scanPoints.length} projected scan points`,
           });
         }
 
@@ -2061,22 +1743,22 @@ function App() {
             setLidarReadings(packet.readings);
           }
           if (Array.isArray(packet.points)) {
-            pendingPointCloudsRef.current.set(t, {
+            const packetPoints = packet.points;
+            enqueuePointCloud({
               topic: t,
-              points: packet.points,
+              points: packetPoints,
               readings: packet.readings,
               frameId: packet.frameId || "",
               resolvedFrame: packet.resolvedFrame || "",
               time: packet.time,
             });
-            schedulePointCloudFlush();
             setActivePointCloudTopic((prev) => {
               if (!prev || prev.toLowerCase().includes("scan")) {
                 return t;
               }
 
               const currentPoints = pointCloudsRef.current[prev]?.points.length || 0;
-              const incomingPoints = packet.points.length || 0;
+              const incomingPoints = packetPoints.length;
               return incomingPoints > currentPoints * 2 ? t : prev;
             });
           }
@@ -2089,17 +1771,7 @@ function App() {
         }
 
         if (packet.type === "camera-frame" && typeof packet.src === "string") {
-          setCamera((prev) => ({
-            topic: packet.topic || prev.topic,
-            isActive: true,
-            frameSrc: packet.src || prev.frameSrc,
-            streamUrl: packet.streamUrl || prev.streamUrl,
-            resolution: packet.resolution || prev.resolution,
-            fps: Number(packet.fps || prev.fps),
-            frameCount: prev.frameCount + 1,
-            issue: packet.issue || "",
-            lastTime: packet.time,
-          }));
+          handleCameraFrame(packet as CameraFrameMessage);
           setLatestFrame({
             topic: packet.topic || "camera",
             time: packet.time,
@@ -2109,15 +1781,7 @@ function App() {
         }
 
         if (packet.type === "camera-stream" && typeof packet.streamUrl === "string") {
-          setCamera((prev) => ({
-            ...prev,
-            topic: packet.topic || prev.topic,
-            isActive: true,
-            streamUrl: packet.streamUrl,
-            resolution: packet.resolution || "Stream",
-            issue: "",
-            lastTime: packet.time || prev.lastTime,
-          }));
+          handleCameraStream(packet as CameraStreamMessage);
           setLatestFrame({
             topic: packet.topic || "camera",
             time: packet.time,
@@ -2127,69 +1791,7 @@ function App() {
         }
 
         if (packet.type === "telemetry" && packet.telemetry) {
-          setTelemetry((prev) => {
-            const next = {
-              ...prev,
-              ...packet.telemetry,
-              gps: { ...prev.gps, ...packet.telemetry.gps },
-              acceleration: { ...prev.acceleration, ...packet.telemetry.acceleration },
-              angularVelocity: { ...prev.angularVelocity, ...packet.telemetry.angularVelocity },
-              magneticField: { ...prev.magneticField, ...packet.telemetry.magneticField },
-              vehicle: { ...prev.vehicle, ...packet.telemetry.vehicle },
-            };
-
-            const accMag = vectorMagnitude(next.acceleration);
-            const oldAccMag = vectorMagnitude(prev.acceleration);
-            const speed = next.speed;
-            const oldSpeed = prev.speed;
-
-            if (accMag > 12 && oldAccMag <= 12) {
-              setCockpitEvents((events) => appendCockpitEvent(
-                events,
-                {
-                  id: `acc-${packet.time}-${Math.random()}`,
-                  timestamp: timeStringToSeconds(packet.time),
-                  timeLabel: label,
-                  severity: "warning",
-                  source: "imu",
-                  title: "High Acceleration Spike",
-                  description: `Acceleration reached ${formatNumber(accMag)} m/s²`,
-                }
-              ));
-            }
-
-            if (oldSpeed > 2 && speed < 0.5) {
-              setCockpitEvents((events) => appendCockpitEvent(
-                events,
-                {
-                  id: `stop-${packet.time}-${Math.random()}`,
-                  timestamp: timeStringToSeconds(packet.time),
-                  timeLabel: label,
-                  severity: "critical",
-                  source: "speed",
-                  title: "Sudden Stop",
-                  description: `Speed dropped rapidly from ${formatNumber(oldSpeed)} to ${formatNumber(speed)} m/s`,
-                }
-              ));
-            }
-
-            setSeries((current) => ({
-              acceleration: packet.telemetry.acceleration
-                ? pushSeries(current.acceleration, vectorMagnitude(next.acceleration), label)
-                : current.acceleration,
-              angularVelocity: packet.telemetry.angularVelocity
-                ? pushSeries(current.angularVelocity, vectorMagnitude(next.angularVelocity), label)
-                : current.angularVelocity,
-              speed: typeof packet.telemetry.speed === "number"
-                ? pushSeries(current.speed, packet.telemetry.speed, label)
-                : current.speed,
-              magneticField: packet.telemetry.magneticField
-                ? pushSeries(current.magneticField, vectorMagnitude(next.magneticField), label)
-                : current.magneticField,
-            }));
-
-            return next;
-          });
+          handleTelemetryMessage(packet as TelemetryMessage);
 
           setLatestFrame({
             topic: packet.topic || "telemetry",
@@ -2223,108 +1825,57 @@ function App() {
             durationSeconds: Number(packet.durationSeconds || 0),
           });
         }
-      } catch (err) {
-        console.error("Invalid backend message:", err);
-      }
-      });
-
-      socket.addEventListener("close", () => {
-        setBackendConnected(false);
-        if (socketRef.current === socket) {
-          socketRef.current = null;
+        if (packet.type === "topic-health") {
+          handleTopicHealthMessage(packet);
         }
-        scheduleReconnect();
-      });
+  }, [
+    enqueuePointCloud,
+    handleCameraFrame,
+    handleCameraStream,
+    handleTelemetryMessage,
+    handleTopicHealthMessage,
+    resetPlaybackState,
+  ]);
 
-      socket.addEventListener("error", () => {
-        setBackendConnected(false);
-        socket.close();
-        scheduleReconnect();
-      });
+  const { connected: backendConnected, sendMessage } = useLiveTelemetry({
+    url: WS_URL,
+    onMessage: handleLiveMessage,
+  });
+
+  useEffect(() => {
+    if (backendConnected) {
+      sendMessage({ type: "start-lidar" });
+      sendMessage({ type: "list-bags" });
     }
-
-    connect();
-
-    return () => {
-      shouldReconnect = false;
-      if (reconnectTimer) {
-        window.clearTimeout(reconnectTimer);
-      }
-      if (pointCloudFlushTimerRef.current) {
-        window.clearTimeout(pointCloudFlushTimerRef.current);
-      }
-      socketRef.current?.close();
-    };
-  }, []);
-
-  const decisionLogEntries: DecisionLogEntry[] = useMemo(() => {
-    return cockpitEvents.map((e) => ({
-      id: e.id,
-      time: e.timeLabel,
-      source: e.source.toUpperCase(),
-      message: `${e.title}: ${e.description}`,
-    }));
-  }, [cockpitEvents]);
+  }, [backendConnected, sendMessage]);
 
   const bagName = useMemo(() => bagStatus.path.split("/").at(-1) || "2025-07-21-16-54-43.bag", [bagStatus.path]);
   const isLiveSource = backendSource === "mqtt" || backendSource === "vehicle-ros";
-  const currentSeconds = Math.max(0, timeStringToSeconds(bagStatus.currentTime) - timeStringToSeconds(bagStatus.startTime));
-  const durationSeconds = Number(bagStatus.durationSeconds || 0);
-  const playbackRatio = pendingSeekRatio ?? (durationSeconds > 0 ? Math.min(currentSeconds / durationSeconds, 1) : 0);
-  const frameLabel = bagStatus.frameCount > 0
-    ? `Frame ${Math.trunc(Math.min(bagStatus.cursor, bagStatus.frameCount))} / ${Math.trunc(bagStatus.frameCount)}`
-    : "Frame 0 / 0";
-
-  function sendPlaybackCommand(type: "start-lidar" | "stop-lidar") {
-    if (socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({ type }));
-    }
-  }
-
-  function seekPlayback(ratio: number) {
-    if (isLiveSource) {
-      return;
-    }
-
-    if (socketRef.current?.readyState === WebSocket.OPEN) {
-      setPendingSeekRatio(undefined);
-      pendingPointCloudsRef.current.clear();
-      if (pointCloudFlushTimerRef.current) {
-        window.clearTimeout(pointCloudFlushTimerRef.current);
-        pointCloudFlushTimerRef.current = undefined;
-      }
-      setPointClouds({});
-      setLidarReadings([]);
-      socketRef.current.send(JSON.stringify({ type: "seek-playback", ratio }));
-    }
-  }
-
-  function seekPlaybackBySeconds(deltaSeconds: number) {
-    if (durationSeconds <= 0) {
-      return;
-    }
-
-    seekPlayback((currentSeconds + deltaSeconds) / durationSeconds);
-  }
 
   function loadBag(path: string) {
-    if (socketRef.current?.readyState === WebSocket.OPEN && path) {
+    if (path && sendMessage({ type: "load-bag", path })) {
       setSelectedBagPath(path);
-      socketRef.current.send(JSON.stringify({ type: "load-bag", path }));
     }
   }
 
-  function previewSeek(ratio: number) {
-    const clampedRatio = Math.max(0, Math.min(1, ratio));
-    setPendingSeekRatio(clampedRatio);
-  }
-
-  function commitPreviewSeek(ratio?: number) {
-    const targetRatio = typeof ratio === "number" ? ratio : pendingSeekRatio;
-    if (typeof targetRatio === "number") {
-      seekPlayback(targetRatio);
-    }
-  }
+  const {
+    currentSeconds,
+    durationSeconds,
+    playbackRatio,
+    frameLabel,
+    sendPlaybackCommand,
+    seekPlayback,
+    seekPlaybackBySeconds,
+    previewSeek,
+    commitPreviewSeek,
+  } = useBagPlayback({
+    bagStatus,
+    pendingSeekRatio,
+    isLiveSource,
+    sendMessage,
+    setPendingSeekRatio,
+    onBeforeSeek: resetPlaybackState,
+  });
 
   return (
     <main className="app-shell">
@@ -2364,6 +1915,7 @@ function App() {
           <button type="button" onClick={() => sendPlaybackCommand("stop-lidar")}>Pause</button>
         </div>
       </header>
+      <TopicHealthStrip health={topicHealth} />
 
       <section className={`inspector-grid mode-${mode}`}>
         <aside className="hud-left">
