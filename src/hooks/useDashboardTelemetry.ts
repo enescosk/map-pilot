@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { TelemetryMessage } from "../types/liveMessages";
 import type { CockpitEvent, DecisionLogEntry, SeriesPoint, TelemetryState } from "../types/telemetry";
 import { formatNumber, vectorMagnitude } from "../utils/telemetryFormatters";
@@ -48,8 +48,10 @@ export function useDashboardTelemetry() {
   const [telemetry, setTelemetry] = useState<TelemetryState>(emptyTelemetry);
   const [cockpitEvents, setCockpitEvents] = useState<CockpitEvent[]>([]);
   const [series, setSeries] = useState(emptySeries);
+  const nativeSpeedSeenRef = useRef(false);
 
   const resetTelemetry = useCallback(() => {
+    nativeSpeedSeenRef.current = false;
     setTelemetry(emptyTelemetry);
     setCockpitEvents([]);
     setSeries(emptySeries());
@@ -59,14 +61,25 @@ export function useDashboardTelemetry() {
     const label = timeLabel(packet.time);
 
     setTelemetry((prev) => {
+      const patch = packet.telemetry;
+      const vehiclePatch = { ...patch.vehicle };
+      const isDerived = patch.derived === true;
+      if (!isDerived && (typeof patch.speed === "number" || typeof vehiclePatch.speedKmh === "number")) {
+        nativeSpeedSeenRef.current = true;
+      }
+      if (isDerived && nativeSpeedSeenRef.current) {
+        delete vehiclePatch.speedKmh;
+      }
+
       const next = {
         ...prev,
-        ...packet.telemetry,
-        gps: { ...prev.gps, ...packet.telemetry.gps },
-        acceleration: { ...prev.acceleration, ...packet.telemetry.acceleration },
-        angularVelocity: { ...prev.angularVelocity, ...packet.telemetry.angularVelocity },
-        magneticField: { ...prev.magneticField, ...packet.telemetry.magneticField },
-        vehicle: { ...prev.vehicle, ...packet.telemetry.vehicle },
+        ...patch,
+        speed: isDerived && nativeSpeedSeenRef.current && typeof patch.speed === "number" ? prev.speed : patch.speed ?? prev.speed,
+        gps: { ...prev.gps, ...patch.gps },
+        acceleration: { ...prev.acceleration, ...patch.acceleration },
+        angularVelocity: { ...prev.angularVelocity, ...patch.angularVelocity },
+        magneticField: { ...prev.magneticField, ...patch.magneticField },
+        vehicle: { ...prev.vehicle, ...vehiclePatch },
       };
 
       const accMag = vectorMagnitude(next.acceleration);
@@ -99,16 +112,16 @@ export function useDashboardTelemetry() {
       }
 
       setSeries((current) => ({
-        acceleration: packet.telemetry.acceleration
+        acceleration: patch.acceleration
           ? pushSeries(current.acceleration, vectorMagnitude(next.acceleration), label)
           : current.acceleration,
-        angularVelocity: packet.telemetry.angularVelocity
+        angularVelocity: patch.angularVelocity
           ? pushSeries(current.angularVelocity, vectorMagnitude(next.angularVelocity), label)
           : current.angularVelocity,
-        speed: typeof packet.telemetry.speed === "number"
-          ? pushSeries(current.speed, packet.telemetry.speed, label)
+        speed: typeof patch.speed === "number" && !(isDerived && nativeSpeedSeenRef.current)
+          ? pushSeries(current.speed, patch.speed, label)
           : current.speed,
-        magneticField: packet.telemetry.magneticField
+        magneticField: patch.magneticField
           ? pushSeries(current.magneticField, vectorMagnitude(next.magneticField), label)
           : current.magneticField,
       }));

@@ -12,6 +12,23 @@ import { usePointCloudBuffer, type PendingPointCloudPacket } from "./hooks/usePo
 import { useTopicHealth } from "./hooks/useTopicHealth";
 import type { BagFileOption, BagStatus, BagTopicSummary, CameraFrameMessage, CameraStatus, CameraStreamMessage, LatestFrame, LidarReading, LiveMessage, Point3D, TelemetryMessage } from "./types/liveMessages";
 import type { GpsFix, SeriesPoint, TelemetryState, Vector3 } from "./types/telemetry";
+import {
+  appendLidarHistory,
+  buildPointCloudFromScan,
+  chooseBestPointCloudTopic,
+  denoisePointCloud,
+  isMeaningfulDisplayPoint,
+  LIDAR_FILTER_VERSION,
+  MAX_TOTAL_MAP_POINTS,
+  mergeLidarMap,
+  POINT_CLOUD_FLUSH_MS,
+  pointToDisplayThree,
+  scanReadingsToPoints,
+  selectRenderablePoints,
+  selectStoredLivePoints,
+  type LaserScanLike,
+  type LidarCloudState,
+} from "./utils/lidarProcessing";
 import { formatBoolean, formatDuration, formatFileSize, formatGear, formatNumber, vectorMagnitude } from "./utils/telemetryFormatters";
 import { timeStringToSeconds } from "./utils/timeLabel";
 import "./App.css";
@@ -53,14 +70,6 @@ export type BagFrame = LatestFrame;
 
 type LidarMode = "2d" | "3d";
 type LidarColorMode = "intensity" | "height" | "distance";
-type LidarCloudState = {
-  points: Point3D[];
-  mapPoints: Point3D[];
-  frameId: string;
-  resolvedFrame?: string;
-  lastTime?: string;
-  filterVersion?: number;
-};
 type LidarDebugStats = {
   pointsCount: number;
   sourcePointsCount: number;
@@ -71,263 +80,14 @@ type LidarDebugStats = {
   firstPoints: Point3D[];
 };
 
-const MAX_LIDAR_HISTORY_POINTS = 32000;
-// Density-controlled rendering: cap the number of points the GPU draws at once.
-// Foxglove-style clarity beats raw point count. Lower = cleaner.
-const MAX_RENDERED_POINT_CLOUD_POINTS = 60000;
-const MAX_STORED_LIVE_POINTS = 120000;
-const MAX_LIDAR_MAP_POINTS = 900000;
-const MAX_TOTAL_MAP_POINTS = 1400000;
-const LIDAR_MAP_VOXEL_SIZE = 0.15;
-const POINT_CLOUD_FLUSH_MS = 100;
 const LIDAR_RENDER_FPS = 30;
 // Default camera: behind-and-above the ego, slightly looking down.
 // In Three.js coords, vehicle is at origin and forward = -Z, so we sit at +Z (behind), +Y (above).
 const DEFAULT_LIDAR_CAMERA_POSITION = new THREE.Vector3(0, 25, 35);
-const LIDAR_VIEW_RADIUS_METERS = 80;
-const LIDAR_VIEW_MIN_HEIGHT = -3;
-const LIDAR_VIEW_MAX_HEIGHT = 12;
-const LIDAR_MIN_RANGE_METERS = 0.5;
-const LIDAR_EGO_CLEARANCE_METERS = 0.4;
-const LIDAR_NOISE_VOXEL_SIZE = 0.4;
-const LIDAR_MIN_VOXEL_POINTS = 2;
-const LIDAR_MIN_NEIGHBOR_POINTS = 4;
-const LIDAR_MAP_CONFIRMATION_VOXEL_SIZE = 0.2;
-const LIDAR_MAP_MIN_SEEN = 1;
 // Tighter height-color range: ground = blue, person height = green/yellow, canopy = red.
 const HEIGHT_COLOR_MIN = -1;
 const HEIGHT_COLOR_MAX = 5;
-// Adaptive voxel-grid downsampling: produces uniform density across the scene so
-// the area right next to the sensor doesn't become a glowing blob.
-const RENDER_VOXEL_SIZE = 0.2;
 const ENABLE_LIDAR_CONTOURS = false;
-const LIDAR_FILTER_VERSION = 3;
-
-// =====================================================================
-// LiDAR coordinate helpers (ROS REP-103, matching Foxglove)
-// ROS frame convention: x = forward, y = left, z = up (right-handed)
-// LaserScan angle convention: 0 rad = +x (forward), positive = counter-clockwise (toward +y/left)
-// =====================================================================
-
-/** Convert polar (angle in radians, distance in meters) → Cartesian in ROS frame. */
-function polarToCartesian(angleRadians: number, distance: number): Point3D {
-  return {
-    x: Math.cos(angleRadians) * distance,
-    y: Math.sin(angleRadians) * distance,
-    z: 0,
-  };
-}
-
-/** Defensive range validity check matching the LaserScan spec. */
-function filterValidRange(range: number, rangeMin: number, rangeMax: number): boolean {
-  return Number.isFinite(range) && range > 0 && range >= rangeMin && range <= rangeMax;
-}
-
-/** Normalize a raw LaserScan-like object so missing fields don't break downstream code. */
-type LaserScanLike = {
-  angle_min?: number;
-  angle_max?: number;
-  angle_increment?: number;
-  range_min?: number;
-  range_max?: number;
-  ranges?: number[];
-  intensities?: number[];
-};
-
-function normalizeLaserScan(scan: LaserScanLike) {
-  return {
-    angleMin: Number(scan?.angle_min ?? 0),
-    angleMax: Number(scan?.angle_max ?? Math.PI * 2),
-    angleIncrement: Number(scan?.angle_increment ?? 0),
-    rangeMin: Number(scan?.range_min ?? 0),
-    rangeMax: Number(scan?.range_max ?? Number.POSITIVE_INFINITY),
-    ranges: Array.isArray(scan?.ranges) ? scan.ranges : [],
-    intensities: Array.isArray(scan?.intensities) ? scan.intensities : [],
-  };
-}
-
-/** Build a flat (z=0) 3D point list from a LaserScan, dropping invalid ranges. */
-function buildPointCloudFromScan(scan: LaserScanLike): Point3D[] {
-  const norm = normalizeLaserScan(scan);
-  const points: Point3D[] = [];
-  for (let i = 0; i < norm.ranges.length; i += 1) {
-    const range = Number(norm.ranges[i]);
-    if (!filterValidRange(range, norm.rangeMin, norm.rangeMax)) continue;
-    const angle = norm.angleMin + i * norm.angleIncrement;
-    const pt = polarToCartesian(angle, range);
-    pt.intensity = Number(norm.intensities[i] || 0);
-    points.push(pt);
-  }
-  return points;
-}
-
-/**
- * Convert the existing degree-based reading array to ROS-frame 3D points.
- * Angle is in degrees with 0° = +x (forward). Output: x forward, y left, z=0.
- */
-function scanReadingsToPoints(readings: LidarReading[]): Point3D[] {
-  return readings
-    .filter((r) => Number.isFinite(r.distance) && r.distance > 0)
-    .map((reading) => {
-      const radians = (reading.angle * Math.PI) / 180;
-      return {
-        x: Math.cos(radians) * reading.distance,
-        y: Math.sin(radians) * reading.distance,
-        z: 0,
-        intensity: reading.distance,
-      };
-    });
-}
-
-function usesCameraOpticalFrame(frameId?: string, resolvedFrame?: string) {
-  const frame = String(resolvedFrame && !resolvedFrame.includes("raw") ? resolvedFrame : frameId || "").toLowerCase();
-  return frame.includes("camera") || frame.includes("optical") || frame.includes("zed");
-}
-
-function usesWorldFrame(frameId?: string, resolvedFrame?: string) {
-  const frame = String(resolvedFrame && !resolvedFrame.includes("raw") ? resolvedFrame : frameId || "").replace(/^\//, "").toLowerCase();
-  return frame === "odom" || frame === "map" || frame === "world" || frame === "global";
-}
-
-function pointToThree(point: Point3D, frameId?: string, resolvedFrame?: string) {
-  if (usesCameraOpticalFrame(frameId, resolvedFrame)) {
-    return {
-      x: point.x,
-      y: -point.y,
-      z: -point.z,
-    };
-  }
-
-  return {
-    x: -point.y,
-    y: point.z,
-    z: -point.x,
-  };
-}
-
-function pointToEgoRelative(point: Point3D, vehiclePose?: TelemetryState["pose"]) {
-  const position = vehiclePose?.position;
-  if (!position) {
-    return point;
-  }
-
-  const vehicleX = Number(position.x || 0);
-  const vehicleY = Number(position.y || 0);
-  const vehicleZ = Number(position.z || 0);
-  if (!Number.isFinite(vehicleX) || !Number.isFinite(vehicleY) || !Number.isFinite(vehicleZ)) {
-    return point;
-  }
-
-  return {
-    ...point,
-    x: point.x - vehicleX,
-    y: point.y - vehicleY,
-    z: point.z - vehicleZ,
-  };
-}
-
-function pointToDisplayThree(point: Point3D, frameId?: string, resolvedFrame?: string, vehiclePose?: TelemetryState["pose"]) {
-  const displayPoint = usesWorldFrame(frameId, resolvedFrame) ? pointToEgoRelative(point, vehiclePose) : point;
-  return pointToThree(displayPoint, frameId, resolvedFrame);
-}
-
-function isMeaningfulScenePoint(point: Point3D, frameId?: string, resolvedFrame?: string) {
-  const threePoint = pointToThree(point, frameId, resolvedFrame);
-  const horizontalDistance = Math.hypot(threePoint.x, threePoint.z);
-  const isWorldFrame = usesWorldFrame(frameId, resolvedFrame);
-  return (
-    Number.isFinite(threePoint.x) &&
-    Number.isFinite(threePoint.y) &&
-    Number.isFinite(threePoint.z) &&
-    (isWorldFrame || horizontalDistance >= LIDAR_MIN_RANGE_METERS) &&
-    (isWorldFrame || horizontalDistance <= LIDAR_VIEW_RADIUS_METERS) &&
-    (isWorldFrame || Math.abs(threePoint.x) > LIDAR_EGO_CLEARANCE_METERS || Math.abs(threePoint.z) > LIDAR_EGO_CLEARANCE_METERS) &&
-    threePoint.y >= LIDAR_VIEW_MIN_HEIGHT &&
-    threePoint.y <= LIDAR_VIEW_MAX_HEIGHT
-  );
-}
-
-function isMeaningfulDisplayPoint(point: Point3D, frameId?: string, resolvedFrame?: string, vehiclePose?: TelemetryState["pose"]) {
-  const threePoint = pointToDisplayThree(point, frameId, resolvedFrame, vehiclePose);
-  const horizontalDistance = Math.hypot(threePoint.x, threePoint.z);
-  return (
-    Number.isFinite(threePoint.x) &&
-    Number.isFinite(threePoint.y) &&
-    Number.isFinite(threePoint.z) &&
-    horizontalDistance <= LIDAR_VIEW_RADIUS_METERS &&
-    threePoint.y >= LIDAR_VIEW_MIN_HEIGHT &&
-    threePoint.y <= LIDAR_VIEW_MAX_HEIGHT
-  );
-}
-
-function noiseVoxelKey(point: Vector3) {
-  return [
-    Math.round(Number(point.x || 0) / LIDAR_NOISE_VOXEL_SIZE),
-    Math.round(Number(point.y || 0) / LIDAR_NOISE_VOXEL_SIZE),
-    Math.round(Number(point.z || 0) / LIDAR_NOISE_VOXEL_SIZE),
-  ].join(":");
-}
-
-function denoisePointCloud(points: Point3D[], frameId?: string, resolvedFrame?: string) {
-  if (points.length === 0) {
-    return points;
-  }
-
-  const candidates: Array<{ point: Point3D; threePoint: Vector3; key: string }> = [];
-  const voxelCounts = new Map<string, number>();
-
-  for (const point of points) {
-    if (!isMeaningfulScenePoint(point, frameId, resolvedFrame)) {
-      continue;
-    }
-
-    const threePoint = pointToThree(point, frameId, resolvedFrame);
-    const key = noiseVoxelKey(threePoint);
-    candidates.push({ point, threePoint, key });
-    voxelCounts.set(key, (voxelCounts.get(key) || 0) + 1);
-  }
-
-  if (candidates.length < Math.min(250, points.length * 0.15)) {
-    return candidates.map((candidate) => candidate.point);
-  }
-
-  const filtered = candidates.filter(({ threePoint, key }) => {
-    if ((voxelCounts.get(key) || 0) >= LIDAR_MIN_VOXEL_POINTS) {
-      return true;
-    }
-
-    const vx = Math.round(Number(threePoint.x || 0) / LIDAR_NOISE_VOXEL_SIZE);
-    const vy = Math.round(Number(threePoint.y || 0) / LIDAR_NOISE_VOXEL_SIZE);
-    const vz = Math.round(Number(threePoint.z || 0) / LIDAR_NOISE_VOXEL_SIZE);
-    let support = voxelCounts.get(key) || 0;
-    for (let dx = -1; dx <= 1; dx += 1) {
-      for (let dy = -1; dy <= 1; dy += 1) {
-        for (let dz = -1; dz <= 1; dz += 1) {
-          if (dx === 0 && dy === 0 && dz === 0) {
-            continue;
-          }
-          support += voxelCounts.get(`${vx + dx}:${vy + dy}:${vz + dz}`) || 0;
-          if (support >= LIDAR_MIN_NEIGHBOR_POINTS) {
-            return true;
-          }
-        }
-      }
-    }
-    return false;
-  });
-
-  return filtered.length >= Math.min(200, candidates.length * 0.2)
-    ? filtered.map((candidate) => candidate.point)
-    : candidates.map((candidate) => candidate.point);
-}
-
-function mapConfirmationKey(point: Point3D) {
-  return [
-    Math.round(point.x / LIDAR_MAP_CONFIRMATION_VOXEL_SIZE),
-    Math.round(point.y / LIDAR_MAP_CONFIRMATION_VOXEL_SIZE),
-    Math.round(point.z / LIDAR_MAP_CONFIRMATION_VOXEL_SIZE),
-  ].join(":");
-}
 
 function setTurboColor(color: THREE.Color, value: number) {
   const t = Math.max(0, Math.min(1, value));
@@ -361,141 +121,6 @@ function createPointSpriteTexture() {
   const texture = new THREE.CanvasTexture(canvas);
   texture.needsUpdate = true;
   return texture;
-}
-
-function appendLidarHistory(current: Point3D[], nextPoints: Point3D[]) {
-  if (nextPoints.length === 0) {
-    return current;
-  }
-
-  return [...current, ...nextPoints].slice(-MAX_LIDAR_HISTORY_POINTS);
-}
-
-/**
- * Voxel-grid downsampling: keep at most one point per voxel-sized cube.
- * This produces a uniform spatial density across the entire scene, eliminating
- * the "glowing blob" near the sensor caused by dense overlapping returns.
- * Returns up to MAX_RENDERED_POINT_CLOUD_POINTS to keep frame rate stable.
- */
-function downsamplePointCloud(points: Point3D[], voxelSize: number): Point3D[] {
-  if (points.length === 0) return points;
-  const grid = new Map<string, Point3D>();
-  const inv = 1 / voxelSize;
-  for (const p of points) {
-    if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z)) continue;
-    const kx = Math.floor(p.x * inv);
-    const ky = Math.floor(p.y * inv);
-    const kz = Math.floor(p.z * inv);
-    const key = `${kx}:${ky}:${kz}`;
-    // Keep the first (or last) sample in each voxel — same end result, lower CPU cost.
-    if (!grid.has(key)) grid.set(key, p);
-  }
-  return [...grid.values()];
-}
-
-function selectRenderablePoints(points: Point3D[]) {
-  // Step 1 — uniform voxel-grid downsample
-  let result = points.length > MAX_RENDERED_POINT_CLOUD_POINTS * 1.5
-    ? downsamplePointCloud(points, RENDER_VOXEL_SIZE)
-    : points;
-  // Step 2 — adaptive: if still too dense, increase voxel size until we're under budget
-  let voxel = RENDER_VOXEL_SIZE;
-  while (result.length > MAX_RENDERED_POINT_CLOUD_POINTS && voxel < 1.5) {
-    voxel *= 1.4;
-    result = downsamplePointCloud(points, voxel);
-  }
-  // Step 3 — hard cap via uniform stride if voxel downsample wasn't aggressive enough
-  if (result.length > MAX_RENDERED_POINT_CLOUD_POINTS) {
-    const step = Math.ceil(result.length / MAX_RENDERED_POINT_CLOUD_POINTS);
-    const strided: Point3D[] = [];
-    for (let i = 0; i < result.length; i += step) strided.push(result[i]);
-    result = strided;
-  }
-  return result;
-}
-
-function selectStoredLivePoints(points: Point3D[]) {
-  if (points.length <= MAX_STORED_LIVE_POINTS) {
-    return points;
-  }
-
-  const step = Math.ceil(points.length / MAX_STORED_LIVE_POINTS);
-  const selected = [];
-  for (let index = 0; index < points.length; index += step) {
-    selected.push(points[index]);
-  }
-  return selected;
-}
-
-function voxelKey(point: Point3D) {
-  return [
-    Math.round(point.x / LIDAR_MAP_VOXEL_SIZE),
-    Math.round(point.y / LIDAR_MAP_VOXEL_SIZE),
-    Math.round(point.z / LIDAR_MAP_VOXEL_SIZE),
-  ].join(":");
-}
-
-function mergeLidarMap(current: Point3D[], nextPoints: Point3D[]) {
-  if (nextPoints.length === 0) {
-    return current;
-  }
-
-  const map = new Map<string, Point3D>();
-  const confirmationCounts = new Map<string, number>();
-  for (const point of current) {
-    map.set(voxelKey(point), point);
-    const confirmationKey = mapConfirmationKey(point);
-    confirmationCounts.set(confirmationKey, Math.max(confirmationCounts.get(confirmationKey) || 0, point.seen || LIDAR_MAP_MIN_SEEN));
-  }
-
-  const step = Math.max(1, Math.ceil(nextPoints.length / 14000));
-  for (let index = 0; index < nextPoints.length; index += step) {
-    const point = nextPoints[index];
-    if (Number.isFinite(point.x) && Number.isFinite(point.y) && Number.isFinite(point.z)) {
-      const confirmationKey = mapConfirmationKey(point);
-      const seen = Math.min(12, (confirmationCounts.get(confirmationKey) || 0) + 1);
-      confirmationCounts.set(confirmationKey, seen);
-      if (seen >= LIDAR_MAP_MIN_SEEN) {
-        map.set(voxelKey(point), { ...point, seen });
-      }
-    }
-  }
-
-  const merged = [...map.values()];
-  if (merged.length <= MAX_LIDAR_MAP_POINTS) {
-    return merged;
-  }
-
-  const trimStep = Math.ceil(merged.length / MAX_LIDAR_MAP_POINTS);
-  return merged.filter((_, index) => index % trimStep === 0);
-}
-
-function isPointCloudTopic(topic: string) {
-  const lower = topic.toLowerCase();
-  return lower.includes("cloud") || lower.includes("points") || lower.includes("rslidar");
-}
-
-function pointCloudTopicPriority(topic: string) {
-  const lower = topic.toLowerCase();
-  if (lower.includes("helios") || lower.includes("rslidar") || lower.includes("m1")) {
-    return 3;
-  }
-  if (lower.includes("laser") || lower.includes("lidar")) {
-    return 2;
-  }
-  if (lower.includes("camera") || lower.includes("zed")) {
-    return 1;
-  }
-  return 0;
-}
-
-function chooseBestPointCloudTopic(pointClouds: Record<string, LidarCloudState>) {
-  return Object.entries(pointClouds)
-    .filter(([topic, state]) => isPointCloudTopic(topic) && state.points.length > 0)
-    .sort(([leftTopic, left], [rightTopic, right]) => {
-      const priorityDelta = pointCloudTopicPriority(rightTopic) - pointCloudTopicPriority(leftTopic);
-      return priorityDelta || right.points.length - left.points.length;
-    })[0]?.[0] || "";
 }
 
 function SparkChart({ title, value, unit, data, color }: {
@@ -663,7 +288,7 @@ function VehicleCockpit({ telemetry, time }: { telemetry: TelemetryState; time?:
           <div className="cockpit-metric">
             <span>Drive</span>
             <strong>{formatGear(vehicle.gear)}</strong>
-            <em>{vehicle.mode || "mode --"}</em>
+            <em>{vehicle.mode || (telemetry.heading !== undefined ? `heading ${formatNumber(telemetry.heading, 0)}°` : "mode --")}</em>
           </div>
           <div className={vehicle.epsFault ? "cockpit-metric alert" : "cockpit-metric"}>
             <span>EPS</span>

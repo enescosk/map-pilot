@@ -10,6 +10,7 @@ import { laserScanToReadings } from "./laserScan.js";
 import { pointCloudToReadings } from "./pointCloud.js";
 import { pointCloud2ToReadings, pointCloud2ToPoints } from "./pointCloud2.js";
 import { compressedImageToSource, imageToSource, rawImageToSource } from "./image.js";
+import { normalizeDerivedTelemetry } from "./derivedTelemetry.js";
 import { normalizeVehicleTelemetry } from "./vehicle.js";
 import { matchTopicEntry } from "../mapping/topicMap.js";
 import { telemetryStore } from "../services/telemetryStore.js";
@@ -138,20 +139,6 @@ function normalizeFrameLegacy({ message, type, topic, time, source }) {
     }
   }
 
-  if (lowerType.includes("imu")) {
-    return {
-      type: "telemetry",
-      source,
-      topic,
-      time,
-      telemetry: {
-        acceleration: message.linear_acceleration,
-        angularVelocity: message.angular_velocity,
-        orientation: message.orientation,
-      },
-    };
-  }
-
   if (lowerType.includes("magneticfield") || lowerTopic.includes("mag")) {
     return {
       type: "telemetry",
@@ -164,41 +151,6 @@ function normalizeFrameLegacy({ message, type, topic, time, source }) {
     };
   }
 
-  if (lowerType.includes("navsatfix") || lowerTopic.includes("gps") || lowerTopic.includes("navsat")) {
-    return {
-      type: "telemetry",
-      source,
-      topic,
-      time,
-      telemetry: {
-        gps: {
-          latitude: message.latitude,
-          longitude: message.longitude,
-          altitude: message.altitude,
-        },
-      },
-    };
-  }
-
-  if (lowerType.includes("odometry")) {
-    const linear = message.twist?.twist?.linear || {};
-    const angular = message.twist?.twist?.angular || {};
-    const speed = Math.hypot(Number(linear.x || 0), Number(linear.y || 0), Number(linear.z || 0));
-
-    return {
-      type: "telemetry",
-      source,
-      topic,
-      time,
-      telemetry: {
-        speed: Number(speed.toFixed(3)),
-        linearVelocity: linear,
-        angularVelocity: angular,
-        pose: message.pose?.pose,
-      },
-    };
-  }
-
   const vehicleTelemetry = normalizeVehicleTelemetry(message, type, topic);
   if (vehicleTelemetry) {
     return {
@@ -207,6 +159,22 @@ function normalizeFrameLegacy({ message, type, topic, time, source }) {
       topic,
       time,
       telemetry: vehicleTelemetry,
+    };
+  }
+
+  const derivedTelemetry = normalizeDerivedTelemetry(message, type, topic, {
+    nativeSpeedAvailable: (
+      telemetryStore.getLastUpdateMs("vehicle.speedMps") !== undefined ||
+      telemetryStore.getLastUpdateMs("vehicle.speedKmh") !== undefined
+    ),
+  });
+  if (derivedTelemetry) {
+    return {
+      type: "telemetry",
+      source,
+      topic,
+      time,
+      telemetry: derivedTelemetry,
     };
   }
 

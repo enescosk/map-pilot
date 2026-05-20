@@ -55,6 +55,10 @@ export type TelemetryState = {
   magneticField: Vector3;
   gps: GpsFix;
   vehicle: VehicleTelemetry;
+  heading?: number;
+  accelerationMagnitude?: number;
+  derived?: boolean;
+  derivedFrom?: string;
   pose?: {
     position?: Vector3;
     orientation?: Vector3 & { w?: number };

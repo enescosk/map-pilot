@@ -57,8 +57,11 @@ const DEFAULT_ROSBAG_TOPIC_PATTERNS = [
   /\/zed2i\/zed_node\/point_cloud\/cloud_registered$/i,
   /\/left_laser\/scan$/i,
   /\/right_laser\/scan$/i,
+  /\/ekf\/odometry_earth$/i,
   /\/zed2i\/zed_node\/odom$/i,
+  /^\/heading$/i,
   /\/navsatfix$/i,
+  /^\/imu\/data$/i,
   /\/imu\/data$/i,
   /\/VelocityInformation$/i,
   /\/eps_response$/i,
@@ -238,7 +241,7 @@ function chooseRosbagTopics(topics) {
   }
 
   if (selected.length > 0) {
-    return selected;
+    return preferPrimaryDerivedTelemetryTopics(selected);
   }
 
   const hintedTopics = topics
@@ -251,6 +254,21 @@ function chooseRosbagTopics(topics) {
   }
 
   return topics.slice(0, 32).map((topic) => topic.topic);
+}
+
+function preferPrimaryDerivedTelemetryTopics(selectedTopics) {
+  const hasEkfOdom = selectedTopics.some((topic) => /\/ekf\/odometry_earth$/i.test(topic));
+  const hasPrimaryImu = selectedTopics.some((topic) => /^\/imu\/data$/i.test(topic));
+
+  return selectedTopics.filter((topic) => {
+    if (hasEkfOdom && /\/zed2i\/zed_node\/odom$/i.test(topic)) {
+      return false;
+    }
+    if (hasPrimaryImu && /\/zed2i\/zed_node\/imu\/data$/i.test(topic)) {
+      return false;
+    }
+    return true;
+  });
 }
 
 function createJsonPlaybackSource({ emit, filePath }) {
