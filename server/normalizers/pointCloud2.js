@@ -1,0 +1,111 @@
+// sensor_msgs/PointCloud2 binary parser. Reads x/y/z/intensity fields based on
+// the field descriptors in the message header. Extracted verbatim from
+// bagPlaybackSource.js so emitted bytes do not change.
+
+import { MAX_SCAN_POINTS, MAX_POINT_CLOUD_POINTS } from "../config/env.js";
+
+function findPointField(message, name) {
+  return message?.fields?.find((field) => field.name === name);
+}
+
+function readField(buffer, offset, datatype, isBigEndian) {
+  try {
+    switch (datatype) {
+      case 1: return buffer.readInt8(offset);
+      case 2: return buffer.readUInt8(offset);
+      case 3: return isBigEndian ? buffer.readInt16BE(offset) : buffer.readInt16LE(offset);
+      case 4: return isBigEndian ? buffer.readUInt16BE(offset) : buffer.readUInt16LE(offset);
+      case 5: return isBigEndian ? buffer.readInt32BE(offset) : buffer.readInt32LE(offset);
+      case 6: return isBigEndian ? buffer.readUInt32BE(offset) : buffer.readUInt32LE(offset);
+      case 7: return isBigEndian ? buffer.readFloatBE(offset) : buffer.readFloatLE(offset);
+      case 8: return isBigEndian ? buffer.readDoubleBE(offset) : buffer.readDoubleLE(offset);
+      default: return 0;
+    }
+  } catch (e) {
+    return Number.NaN;
+  }
+}
+
+export function pointCloud2ToReadings(message) {
+  const data = message?.data;
+  const xField = findPointField(message, "x");
+  const yField = findPointField(message, "y");
+  const pointStep = Number(message?.point_step || 0);
+  const pointCount = Number(message?.width || 0) * Number(message?.height || 0);
+
+  if (!data || !xField || !yField || pointStep <= 0 || pointCount <= 0) {
+    return [];
+  }
+
+  const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
+  const step = Math.max(1, Math.ceil(pointCount / MAX_SCAN_POINTS));
+  const readings = [];
+
+  for (let pointIndex = 0; pointIndex < pointCount; pointIndex += step) {
+    const baseOffset = pointIndex * pointStep;
+    const x = readField(buffer, baseOffset + xField.offset, xField.datatype, message.is_bigendian);
+    const y = readField(buffer, baseOffset + yField.offset, yField.datatype, message.is_bigendian);
+
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      continue;
+    }
+
+    const distance = Math.hypot(x, y);
+    if (distance <= 0) {
+      continue;
+    }
+
+    const angle = (Math.atan2(y, x) * 180) / Math.PI;
+    readings.push({
+      angle: Number(((angle + 360) % 360).toFixed(1)),
+      distance: Number(distance.toFixed(3)),
+    });
+  }
+
+  return readings;
+}
+
+export function pointCloud2ToPoints(message) {
+  const data = message?.data;
+  const xField = findPointField(message, "x");
+  const yField = findPointField(message, "y");
+  const zField = findPointField(message, "z");
+  const intensityField = findPointField(message, "intensity");
+  const pointStep = Number(message?.point_step || 0);
+  const pointCount = Number(message?.width || 0) * Number(message?.height || 0);
+
+  if (!data || !xField || !yField || pointStep <= 0 || pointCount <= 0) {
+    return [];
+  }
+
+  const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
+  const step = Math.max(1, Math.ceil(pointCount / MAX_POINT_CLOUD_POINTS));
+  const points = [];
+
+  for (let pointIndex = 0; pointIndex < pointCount; pointIndex += step) {
+    const baseOffset = pointIndex * pointStep;
+    const x = readField(buffer, baseOffset + xField.offset, xField.datatype, message.is_bigendian);
+    const y = readField(buffer, baseOffset + yField.offset, yField.datatype, message.is_bigendian);
+    const z = zField ? readField(buffer, baseOffset + zField.offset, zField.datatype, message.is_bigendian) : 0;
+    const intensity = intensityField
+      ? readField(buffer, baseOffset + intensityField.offset, intensityField.datatype, message.is_bigendian)
+      : 0;
+
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+      continue;
+    }
+
+    if (x === 0 && y === 0 && z === 0) {
+      continue;
+    }
+
+    points.push({
+      x: Number(x.toFixed(3)),
+      y: Number(y.toFixed(3)),
+      z: Number(z.toFixed(3)),
+      intensity: Number((Number.isFinite(intensity) ? intensity : 0).toFixed(3)),
+    });
+  }
+
+  return points;
+}

@@ -1,5 +1,6 @@
 import WebSocket from "ws";
-import { normalizeFrame } from "./bagPlaybackSource.js";
+import { normalizeFrame } from "../normalizers/index.js";
+import { rosTimeToString } from "../normalizers/helpers.js";
 
 const ROSBRIDGE_URL = process.env.ROSBRIDGE_URL || "ws://localhost:9090";
 const VEHICLE_TOPICS = (process.env.VEHICLE_TOPICS || [
@@ -23,20 +24,6 @@ const VEHICLE_TOPICS = (process.env.VEHICLE_TOPICS || [
   .split(",")
   .map((topic) => topic.trim())
   .filter(Boolean);
-
-function rosTimeToString(stamp) {
-  if (!stamp || typeof stamp !== "object") {
-    return new Date().toISOString();
-  }
-
-  const sec = Number(stamp.sec || stamp.secs || 0);
-  const nsec = Number(stamp.nsec || stamp.nsecs || 0);
-  if (!sec) {
-    return new Date().toISOString();
-  }
-
-  return new Date(sec * 1000 + Math.round(nsec / 1_000_000)).toISOString();
-}
 
 export function createVehicleRosSource({ emit }) {
   let rosSocket;
