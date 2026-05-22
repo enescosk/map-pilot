@@ -42,7 +42,7 @@ def make_callback(topic, type_str):
         envelope = {
             "topic": topic,
             "type": type_str,
-            "time": rospy.get_time(),
+            "time": f"{rospy.get_time():.6f}",
             "message": extract_values(msg),
         }
         mqtt_client.publish(mqtt_topic, json.dumps(envelope))

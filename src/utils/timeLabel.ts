@@ -1,16 +1,17 @@
-export function timeStringToSeconds(time?: string) {
-  if (!time) {
+export function timeStringToSeconds(time?: string | number) {
+  if (time === undefined || time === null || time === "") {
     return 0;
   }
 
   return Number(time) || 0;
 }
 
-export function timeLabel(time?: string) {
-  if (!time) {
+export function timeLabel(time?: string | number) {
+  if (time === undefined || time === null || time === "") {
     return "--";
   }
 
-  const [, fraction = ""] = time.split(".");
-  return fraction.slice(0, 3) || time.slice(-6);
+  const str = String(time);
+  const [, fraction = ""] = str.split(".");
+  return fraction.slice(0, 3) || str.slice(-6);
 }
