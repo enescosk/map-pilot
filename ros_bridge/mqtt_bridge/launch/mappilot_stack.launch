@@ -1,0 +1,23 @@
+<launch>
+  <!-- CLI override: roslaunch mqtt_bridge mappilot_stack.launch bag:=/path/to/other.bag -->
+  <arg name="bag"          default="/home/enescoskun/Desktop/enes_ws/bag/aractan.bag"/>
+  <arg name="bag_extra"    default="--loop"/>
+  <arg name="run_bridge"   default="true"/>
+  <arg name="run_rosbridge" default="true"/>
+
+  <param name="use_sim_time" value="true"/>
+
+  <!-- rosbridge_websocket on :9090 (for vehicle-ros mode) -->
+  <include if="$(arg run_rosbridge)"
+           file="$(find rosbridge_server)/launch/rosbridge_websocket.launch"/>
+
+  <!-- bag playback -->
+  <node pkg="rosbag" type="play" name="bag_player"
+        args="--clock $(arg bag_extra) $(arg bag)"
+        output="screen" required="true"/>
+
+  <!-- ROS -> MQTT bridge (for mqtt mode) -->
+  <node if="$(arg run_bridge)"
+        pkg="mqtt_bridge" type="ros_to_mqtt.py" name="ros_to_mqtt"
+        output="screen"/>
+</launch>
