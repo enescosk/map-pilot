@@ -1,9 +1,13 @@
 <launch>
-  <!-- CLI override: roslaunch mqtt_bridge mappilot_stack.launch bag:=/path/to/other.bag -->
+  <!-- CLI override examples:
+       roslaunch mqtt_bridge mappilot_stack.launch bag:=/path/to/other.bag
+       roslaunch mqtt_bridge mappilot_stack.launch run_reverse:=false
+  -->
   <arg name="bag"          default="/home/enescoskun/Desktop/enes_ws/bag/aractan.bag"/>
   <arg name="bag_extra"    default="--loop"/>
   <arg name="run_bridge"   default="true"/>
   <arg name="run_rosbridge" default="true"/>
+  <arg name="run_reverse"  default="true"/>
 
   <param name="use_sim_time" value="true"/>
 
@@ -16,8 +20,13 @@
         args="--clock $(arg bag_extra) $(arg bag)"
         output="screen" required="true"/>
 
-  <!-- ROS -> MQTT bridge (for mqtt mode) -->
+  <!-- ROS -> MQTT bridge (vehicle CAN + sensors to dashboard) -->
   <node if="$(arg run_bridge)"
         pkg="mqtt_bridge" type="ros_to_mqtt.py" name="ros_to_mqtt"
+        output="screen"/>
+
+  <!-- MQTT -> ROS reverse bridge (dashboard control commands to vehicle) -->
+  <node if="$(arg run_reverse)"
+        pkg="mqtt_bridge" type="mqtt_to_ros.py" name="mqtt_to_ros"
         output="screen"/>
 </launch>
