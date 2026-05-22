@@ -3,8 +3,9 @@
 
 Subscribes to map-pilot/control/+. For each incoming JSON envelope:
   {"topic": "/throttle_control", "type": "dbw_interface/...", "message": {...}}
-publishes the inner message on the named ROS topic, creating publishers
-lazily based on the declared type.
+populates a fresh ROS message and publishes it on the named topic. All
+allowed publishers are advertised at startup so the first dashboard command
+is not lost while subscribers discover the publisher.
 
 Dashboard / external tools can drive the vehicle through this path without
 talking to ROS directly.
@@ -40,14 +41,18 @@ def load_msg_class(type_str):
     return getattr(mod, msg)
 
 
-def get_publisher(topic, type_str):
-    pub = publishers.get(topic)
-    if pub is None:
-        cls = load_msg_class(type_str)
-        pub = rospy.Publisher(topic, cls, queue_size=10)
-        publishers[topic] = pub
-        rospy.loginfo(f"created publisher {topic} ({type_str})")
-    return pub
+def prepare_publishers():
+    # Advertise every allowed publisher up front so subscribers can latch on
+    # before the first MQTT message arrives. Lazy creation loses the first
+    # publish until peers discover the new advertisement.
+    for topic, type_str in ALLOWED.items():
+        try:
+            cls = load_msg_class(type_str)
+        except (ImportError, AttributeError) as exc:
+            rospy.logwarn(f"skip {topic} ({type_str}): {exc}")
+            continue
+        publishers[topic] = rospy.Publisher(topic, cls, queue_size=10)
+        rospy.loginfo(f"advertised {topic} ({type_str})")
 
 
 def on_mqtt_message(client, userdata, msg):
@@ -68,11 +73,15 @@ def on_mqtt_message(client, userdata, msg):
         rospy.logwarn_throttle(5.0, f"reject {topic}: type {type_str} != {ALLOWED[topic]}")
         return
 
+    pub = publishers.get(topic)
+    if pub is None:
+        rospy.logwarn_throttle(5.0, f"no publisher for {topic} (failed to advertise at startup)")
+        return
+
     try:
-        cls = load_msg_class(type_str)
-        instance = cls()
+        instance = pub.data_class()
         populate_instance(payload, instance)
-        get_publisher(topic, type_str).publish(instance)
+        pub.publish(instance)
         rospy.loginfo_throttle(2.0, f"<- {msg.topic} -> {topic}")
     except Exception as exc:
         rospy.logwarn(f"populate/publish failed for {topic}: {exc}")
@@ -85,6 +94,7 @@ def on_connect(client, userdata, flags, rc):
 
 def main():
     rospy.init_node("mqtt_to_ros_bridge")
+    prepare_publishers()
     client = mqtt.Client()
     client.on_connect = on_connect
     client.on_message = on_mqtt_message
