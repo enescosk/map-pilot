@@ -196,6 +196,78 @@ Open:
 http://localhost:5173/
 ```
 
+## ROS Bridge Package (`ros_bridge/mqtt_bridge`)
+
+A ROS1 catkin package that runs directly on the vehicle computer to bridge ROS topics and MQTT in both directions. Use this when rosbridge_server is not desirable (e.g. you want raw native ROS performance and a single MQTT entry point).
+
+Contents:
+
+- `scripts/ros_to_mqtt.py` — subscribes to vehicle CAN and standard sensor topics, publishes JSON envelopes to `map-pilot/raw/<topic>`.
+- `scripts/mqtt_to_ros.py` — subscribes to `map-pilot/control/+`, publishes accepted control commands back onto ROS.
+- `launch/mappilot_stack.launch` — single-command stack: rosbridge + rosbag + both bridges.
+
+### Build
+
+```bash
+# On the vehicle computer, with ROS1 Noetic and any custom message workspaces sourced:
+mkdir -p ~/ros_ws/src && cd ~/ros_ws/src
+ln -s /path/to/map-pilot/ros_bridge/mqtt_bridge .
+cd ~/ros_ws && catkin_make
+source devel/setup.bash
+```
+
+### Run
+
+```bash
+source /opt/ros/noetic/setup.bash
+source /path/to/custom_msgs_ws/devel/setup.bash   # if dbw_interface / beemobs_routine_manager are needed
+source ~/ros_ws/devel/setup.bash
+roslaunch mqtt_bridge mappilot_stack.launch
+```
+
+CLI overrides:
+
+```bash
+# different bag
+roslaunch mqtt_bridge mappilot_stack.launch bag:=/path/to/another.bag
+# disable reverse bridge (read-only mode)
+roslaunch mqtt_bridge mappilot_stack.launch run_reverse:=false
+# disable forward bridge (rosbridge-only mode)
+roslaunch mqtt_bridge mappilot_stack.launch run_bridge:=false
+```
+
+### Dashboard side
+
+Once the bridges are running, point any MapPilot dashboard at the broker:
+
+```bash
+MQTT_URL=mqtt://VEHICLE_COMPUTER_IP:1883 npm run dashboard-mqtt
+```
+
+Drive the vehicle from the dashboard by publishing envelopes to `map-pilot/control/<topic>`:
+
+```bash
+mosquitto_pub -h VEHICLE_COMPUTER_IP -t "map-pilot/control/steer_control" \
+  -m '{"topic":"/steer_control","type":"beemobs_routine_manager/SteerControl","message":{"desired_angle":15.0,"desired_angle_speed":3.0}}'
+```
+
+The reverse bridge whitelists `/throttle_control`, `/vcu_eps_control`, `/vcu_ehb_control`, `/steer_control`, `/brake_control`, `/autonomous_mode_selection` — other topics are rejected so a malformed payload cannot create arbitrary publishers.
+
+### Run on boot
+
+A systemd unit is shipped under `ros_bridge/systemd/`. See its README for install/upgrade/uninstall steps. The unit calls the same `start_stack.sh` wrapper, so manual runs and the boot-managed run stay in sync.
+
+### Mosquitto for remote dashboards
+
+If the dashboard runs on a different machine, the broker must accept external connections. Add `/etc/mosquitto/conf.d/mappilot.conf`:
+
+```text
+listener 1883 0.0.0.0
+allow_anonymous true
+```
+
+Then `sudo systemctl restart mosquitto`.
+
 ## Desktop `enes_ws` Bag Playback
 
 Offline bag playback remains available for test/debug work. It is not the primary production input. The backend defaults to the ROS1 bags in `~/Desktop/enes_ws/bag`:

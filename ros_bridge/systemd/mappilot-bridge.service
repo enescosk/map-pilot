@@ -1,0 +1,26 @@
+[Unit]
+Description=MapPilot ROS/MQTT bridge stack
+Documentation=https://github.com/enescosk/map-pilot
+# Wait for network so MQTT remote subscribers can connect; mosquitto must be up
+# for the bridges to publish.
+After=network-online.target mosquitto.service
+Wants=network-online.target mosquitto.service
+
+[Service]
+Type=simple
+User=enescoskun
+Group=enescoskun
+# Use the host's regular shell init so ROS env stays consistent with manual runs.
+ExecStart=/bin/bash /home/enescoskun/Desktop/map-pilot-main/ros_bridge/mqtt_bridge/scripts/start_stack.sh
+# roslaunch writes verbose status to stdout/stderr; let systemd journal capture it.
+StandardOutput=journal
+StandardError=journal
+# Restart on crash, but back off so a misconfigured launch does not spin the CPU.
+Restart=on-failure
+RestartSec=5s
+# Give roslaunch time to clean up child nodes when stopping.
+KillSignal=SIGINT
+TimeoutStopSec=20s
+
+[Install]
+WantedBy=multi-user.target
