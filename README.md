@@ -40,6 +40,14 @@ bag playback
 
 For realistic bag testing on a ROS machine, prefer `rosbag play`. That republishes the recorded data as normal ROS topics, and MapPilot consumes those topics through the live ROS or MQTT source.
 
+### Which Mode Should I Use?
+
+- Real robot / live ROS: use `npm run live-ros` with `ROSBRIDGE_URL=ws://ROBOT_IP:9090`.
+- Bag replay as realistic live topics: run `rosbag play` on the ROS machine, then use `npm run live-ros` from MapPilot.
+- Offline bag debugging on the dashboard machine: use `npm run offline-bag`.
+- MQTT dashboard / remote bridge: use `npm run dashboard-mqtt` with `MQTT_URL=mqtt://BROKER_IP:1883`.
+- Direct serial LiDAR bench work: use `LIDAR_SOURCE=direct npm run server`.
+
 ### Two-Computer Live Test Setup
 
 Computer A, the ROS machine:

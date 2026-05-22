@@ -2,8 +2,8 @@ import WebSocket from "ws";
 import { normalizeFrame } from "../normalizers/index.js";
 import { rosTimeToString } from "../normalizers/helpers.js";
 
-const ROSBRIDGE_URL = process.env.ROSBRIDGE_URL || "ws://localhost:9090";
-const DEFAULT_LIVE_ROS_TOPICS = [
+export const ROSBRIDGE_URL = process.env.ROSBRIDGE_URL || "ws://localhost:9090";
+export const DEFAULT_LIVE_ROS_TOPICS = [
   "/VelocityInformation",
   "/eps_response",
   "/EHB_BrakingResponse",
@@ -31,7 +31,7 @@ const DEFAULT_LIVE_ROS_TOPICS = [
   "/heading",
   "/navsatfix",
 ];
-const LIVE_ROS_TOPICS = (process.env.LIVE_ROS_TOPICS || process.env.VEHICLE_TOPICS || DEFAULT_LIVE_ROS_TOPICS.join(","))
+export const LIVE_ROS_TOPICS = (process.env.LIVE_ROS_TOPICS || process.env.VEHICLE_TOPICS || DEFAULT_LIVE_ROS_TOPICS.join(","))
   .split(",")
   .map((topic) => topic.trim())
   .filter(Boolean);

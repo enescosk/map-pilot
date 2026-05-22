@@ -1,8 +1,8 @@
 import WebSocket from "ws";
 import { laserScanToReadings } from "../normalizers/laserScan.js";
 
-const ROSBRIDGE_URL = process.env.ROSBRIDGE_URL || "ws://localhost:9090";
-const ROS_SCAN_TOPIC = process.env.ROS_SCAN_TOPIC || "/scan";
+export const ROSBRIDGE_URL = process.env.ROSBRIDGE_URL || "ws://localhost:9090";
+export const ROS_SCAN_TOPIC = process.env.ROS_SCAN_TOPIC || "/scan";
 
 export function createRosBridgeLidarSource({ emit }) {
   let rosSocket;

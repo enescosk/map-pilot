@@ -346,6 +346,22 @@ button:hover {
   min-height: 160px;
 }
 
+.lidar-empty-state {
+  background: #070b12;
+  min-height: 360px;
+}
+
+.panel-note {
+  color: #9aa6b8;
+  font-size: 0.82rem;
+  margin: 0;
+}
+
+.cockpit-note {
+  grid-column: 1 / -1;
+  padding: 0 2px;
+}
+
 .metric-strip {
   align-items: center;
   background: #171a20;

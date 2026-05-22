@@ -17,9 +17,9 @@ import path from "node:path";
 
 import { createBagPlaybackSource } from "./sources/bagPlaybackSource.js";
 import { createDirectLidarSource } from "./sources/directLidarSource.js";
-import { createMqttBridgeSource } from "./sources/mqttBridgeSource.js";
-import { createRosBridgeLidarSource } from "./sources/rosBridgeLidarSource.js";
-import { createVehicleRosSource } from "./sources/vehicleRosSource.js";
+import { createMqttBridgeSource, MQTT_RAW_TOPICS, MQTT_URL } from "./sources/mqttBridgeSource.js";
+import { createRosBridgeLidarSource, ROS_SCAN_TOPIC, ROSBRIDGE_URL as ROS_LIDAR_BRIDGE_URL } from "./sources/rosBridgeLidarSource.js";
+import { createVehicleRosSource, LIVE_ROS_TOPICS, ROSBRIDGE_URL as VEHICLE_ROSBRIDGE_URL } from "./sources/vehicleRosSource.js";
 
 import { telemetryBus, BUS_EVENTS } from "./services/telemetryBus.js";
 import { telemetryStore } from "./services/telemetryStore.js";
@@ -39,6 +39,53 @@ const wss = new WebSocketServer({ port: WS_PORT });
 let selectedBagPath = DEFAULT_BAG_FILE_PATH;
 let lidarSource;
 let latestTelemetryEnvelope; // cached for snapshot-on-connect
+
+function sanitizeUrlForLog(value) {
+  try {
+    const url = new URL(value);
+    if (url.username || url.password) {
+      url.username = "";
+      url.password = "";
+    }
+    return url.toString();
+  } catch {
+    return String(value || "");
+  }
+}
+
+function sourceKind() {
+  if (["vehicle-ros", "mqtt", "ros"].includes(LIDAR_SOURCE)) return "live";
+  if (LIDAR_SOURCE === "bag") return "offline/debug";
+  if (LIDAR_SOURCE === "direct") return "bench";
+  return "custom";
+}
+
+function logStartupDiagnostics() {
+  console.log(`MapPilot backend listening on ws://localhost:${WS_PORT}`);
+  console.log(`LiDAR source: ${LIDAR_SOURCE} (${sourceKind()})`);
+  console.log(`Source auto-start: ${AUTO_START_SOURCE ? "enabled" : "disabled"}`);
+
+  if (LIDAR_SOURCE === "vehicle-ros") {
+    console.log(`ROS bridge URL: ${sanitizeUrlForLog(VEHICLE_ROSBRIDGE_URL)}`);
+    console.log(`Live ROS topics: ${LIVE_ROS_TOPICS.join(", ")}`);
+  } else if (LIDAR_SOURCE === "ros") {
+    console.log(`ROS bridge URL: ${sanitizeUrlForLog(ROS_LIDAR_BRIDGE_URL)}`);
+    console.log(`ROS scan topic: ${ROS_SCAN_TOPIC}`);
+  } else if (LIDAR_SOURCE === "mqtt") {
+    console.log(`MQTT URL: ${sanitizeUrlForLog(MQTT_URL)}`);
+    console.log(`MQTT raw topics: ${MQTT_RAW_TOPICS.join(", ")}`);
+  } else if (LIDAR_SOURCE === "bag") {
+    console.log("Bag playback auto-start: disabled unless AUTO_START_SOURCE=true or the UI sends Play");
+    console.log(`Bag directory: ${BAG_DIRECTORY}`);
+    if (selectedBagPath) {
+      console.log(`Selected bag: ${selectedBagPath}`);
+    }
+  }
+
+  if (mqttPublisher.enabled) {
+    console.log(`MQTT publish: enabled (events + vehicle/* under '${mqttPublisher.topicRoot}')`);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Bus wiring: sources -> bus -> { WS broadcaster, MQTT publisher, health }.
@@ -189,13 +236,5 @@ wss.on("connection", (ws) => {
 });
 
 wss.on("listening", () => {
-  console.log(`MapPilot backend listening on ws://localhost:${WS_PORT}`);
-  console.log(`LiDAR source: ${LIDAR_SOURCE}`);
-  console.log(`Bag directory: ${BAG_DIRECTORY}`);
-  if (mqttPublisher.enabled) {
-    console.log(`MQTT publish: enabled (events + vehicle/* under '${mqttPublisher.topicRoot}')`);
-  }
-  if (selectedBagPath) {
-    console.log(`Selected bag: ${selectedBagPath}`);
-  }
+  logStartupDiagnostics();
 });

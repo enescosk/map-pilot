@@ -89,6 +89,30 @@ const HEIGHT_COLOR_MIN = -1;
 const HEIGHT_COLOR_MAX = 5;
 const ENABLE_LIDAR_CONTOURS = false;
 
+function sourceModeInfo(source: string) {
+  switch (source) {
+    case "vehicle-ros":
+      return { label: "vehicle-ros", kind: "Live ROS", waiting: "Waiting for live ROS topics..." };
+    case "mqtt":
+      return { label: "mqtt", kind: "Live MQTT", waiting: "Waiting for MQTT topics..." };
+    case "rosbridge":
+      return { label: "ros", kind: "Legacy live ROS", waiting: "Waiting for ROS scan topic..." };
+    case "direct-serial":
+      return { label: "direct", kind: "Bench live", waiting: "Waiting for direct LiDAR scan..." };
+    case "bag-playback":
+    case "rosbag-playback":
+      return { label: "bag-playback", kind: "Offline/debug", waiting: "Press Play to start offline bag playback." };
+    default:
+      return { label: source || "none", kind: "Source pending", waiting: "Waiting for backend source status..." };
+  }
+}
+
+function sourceHealthLabel(connected: boolean, isLiveSource: boolean, isStale: boolean) {
+  if (isStale) return "topic stale";
+  if (!isLiveSource) return connected ? "ready" : "idle";
+  return connected ? "connected" : "disconnected";
+}
+
 function setTurboColor(color: THREE.Color, value: number) {
   const t = Math.max(0, Math.min(1, value));
   if (t < 0.2) {
@@ -251,6 +275,7 @@ function VehicleTopView({ vehicle }: { vehicle: TelemetryState["vehicle"] }) {
 function VehicleCockpit({ telemetry, time }: { telemetry: TelemetryState; time?: string }) {
   const vehicle = telemetry.vehicle;
   const steeringAngle = Number(vehicle.steeringAngle || 0);
+  const hasTelemetry = telemetry.derived || telemetry.heading !== undefined || Object.values(vehicle).some((value) => value !== undefined);
   const steeringStyle = {
     "--steering-angle": `${Math.max(-90, Math.min(90, steeringAngle))}deg`,
   } as CSSProperties;
@@ -264,6 +289,9 @@ function VehicleCockpit({ telemetry, time }: { telemetry: TelemetryState; time?:
       <div className="cockpit-layout">
         <SpeedGauge speedKmh={vehicle.speedKmh} speedMs={telemetry.speed} />
         <VehicleTopView vehicle={vehicle} />
+        {!hasTelemetry && (
+          <p className="panel-note cockpit-note">Telemetry unavailable for this source</p>
+        )}
         <div className="cockpit-status-grid">
           <div className="cockpit-metric">
             <span>Steering</span>
@@ -341,7 +369,7 @@ function CameraViewer({ camera }: { camera: CameraStatus }) {
         {cameraSrc ? (
           <img src={cameraSrc} alt="Live camera feed" />
         ) : (
-          <div className="empty-state">Waiting for camera frame...</div>
+          <div className="empty-state">No camera frame received yet</div>
         )}
       </div>
       <div className="metric-strip">
@@ -1044,12 +1072,14 @@ function LidarWorkspace({
   activeTopic,
   setActiveTopic,
   vehiclePose,
+  emptyMessage,
 }: {
   readings: LidarReading[];
   pointClouds: Record<string, LidarCloudState>;
   activeTopic: string;
   setActiveTopic: (t: string) => void;
   vehiclePose?: TelemetryState["pose"];
+  emptyMessage: string;
 }) {
   const [mode, setMode] = useState<LidarMode>("3d");
   const [cloudView, setCloudView] = useState<"live" | "map">("live");
@@ -1074,6 +1104,7 @@ function LidarWorkspace({
   const points = cloudView === "map" && activeData.mapPoints.length > 0
     ? activeData.mapPoints
     : activeData.points;
+  const hasLidarData = readings.length > 0 || points.length > 0;
 
   return (
     <section className="workspace-panel lidar-workspace">
@@ -1142,7 +1173,7 @@ function LidarWorkspace({
           </label>
         </div>
       )}
-      {mode === "3d" ? (
+      {hasLidarData ? mode === "3d" ? (
         <Lidar3D
           readings={readings}
           points={points}
@@ -1155,7 +1186,9 @@ function LidarWorkspace({
           autoFit={autoFit}
           showDebug={showDebug}
         />
-      ) : <Lidar2D readings={readings} points={points} />}
+      ) : <Lidar2D readings={readings} points={points} /> : (
+        <div className="empty-state lidar-empty-state">{emptyMessage}</div>
+      )}
       <div className="metric-strip">
         <span>{readings.length} scan points</span>
         <span>{activeData.points.length.toLocaleString()} live pts</span>
@@ -1476,6 +1509,14 @@ function App() {
 
   const bagName = useMemo(() => bagStatus.path.split("/").at(-1) || "2025-07-21-16-54-43.bag", [bagStatus.path]);
   const isLiveSource = backendSource === "mqtt" || backendSource === "vehicle-ros" || backendSource === "rosbridge" || backendSource === "direct-serial";
+  const sourceMode = sourceModeInfo(backendSource || bagStatus.source);
+  const sourceHealth =
+    topicHealth.sources[backendSource] ||
+    topicHealth.sources[bagStatus.source] ||
+    topicHealth.sources[sourceMode.label];
+  const sourceIsConnected = Boolean(sourceHealth?.connected ?? (isLiveSource ? bagStatus.connected : backendConnected));
+  const sourceHasStaleTopics = Object.values(topicHealth.topics || {}).some((topic) => topic.isStale);
+  const sourceStatusText = sourceHealthLabel(sourceIsConnected, isLiveSource, sourceHasStaleTopics);
 
   function loadBag(path: string) {
     if (path && sendMessage({ type: "load-bag", path })) {
@@ -1530,8 +1571,11 @@ function App() {
           <span className={backendConnected ? "status-pill good" : "status-pill bad"}>
             {backendConnected ? "Backend online" : "Backend offline"}
           </span>
-          <span className={isLiveSource ? "status-pill good" : "status-pill muted"}>
-            {isLiveSource ? `Live source: ${backendSource}` : "Bag playback"}
+          <span className={isLiveSource ? "status-pill good" : "status-pill muted"} title={sourceMode.waiting}>
+            {sourceMode.kind}: {sourceMode.label}
+          </span>
+          <span className={sourceIsConnected && !sourceHasStaleTopics ? "status-pill good" : sourceHasStaleTopics ? "status-pill bad" : "status-pill muted"}>
+            {sourceStatusText}
           </span>
           <span className={bagStatus.playing ? "status-pill good" : "status-pill muted"}>
             {bagStatus.playing ? "Playing" : "Paused"}
@@ -1540,7 +1584,7 @@ function App() {
           <button type="button" onClick={() => sendPlaybackCommand("stop-lidar")}>Pause</button>
         </div>
       </header>
-      <TopicHealthStrip health={topicHealth} />
+      <TopicHealthStrip health={topicHealth} sourceLabel={sourceMode.label} modeKind={sourceMode.kind} waitingMessage={sourceMode.waiting} />
 
       <section className={`inspector-grid mode-${mode}`}>
         <aside className="hud-left">
@@ -1555,6 +1599,7 @@ function App() {
             activeTopic={activePointCloudTopic}
             setActiveTopic={setActivePointCloudTopic}
             vehiclePose={telemetry.pose}
+            emptyMessage={sourceMode.waiting}
           />
           <MapPanel gps={telemetry.gps} speed={telemetry.speed} />
           <DecisionLogPanel entries={decisionLogEntries} />

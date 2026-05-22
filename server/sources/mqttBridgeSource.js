@@ -2,10 +2,10 @@ import mqtt from "mqtt";
 import { normalizeFrame } from "../normalizers/index.js";
 import { rosTimeToString } from "../normalizers/helpers.js";
 
-const MQTT_URL = process.env.MQTT_URL || "mqtt://localhost:1883";
-const MQTT_TOPIC_ROOT = process.env.MQTT_TOPIC_ROOT || "map-pilot";
-const MQTT_EVENTS_TOPIC = `${MQTT_TOPIC_ROOT}/events/#`;
-const MQTT_RAW_TOPICS = (process.env.MQTT_RAW_TOPICS || `${MQTT_TOPIC_ROOT}/raw/#`)
+export const MQTT_URL = process.env.MQTT_URL || "mqtt://localhost:1883";
+export const MQTT_TOPIC_ROOT = process.env.MQTT_TOPIC_ROOT || "map-pilot";
+export const MQTT_EVENTS_TOPIC = `${MQTT_TOPIC_ROOT}/events/#`;
+export const MQTT_RAW_TOPICS = (process.env.MQTT_RAW_TOPICS || `${MQTT_TOPIC_ROOT}/raw/#`)
   .split(",")
   .map((topic) => topic.trim())
   .filter(Boolean);
