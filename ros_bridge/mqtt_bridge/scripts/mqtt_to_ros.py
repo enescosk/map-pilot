@@ -12,13 +12,14 @@ talking to ROS directly.
 """
 import importlib
 import json
+import os
 import rospy
 import paho.mqtt.client as mqtt
 from rosbridge_library.internal.message_conversion import populate_instance
 
-MQTT_HOST = "localhost"
-MQTT_PORT = 1883
-TOPIC_ROOT = "map-pilot"
+MQTT_HOST = os.environ.get("MQTT_HOST", "localhost")
+MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
+TOPIC_ROOT = os.environ.get("MQTT_TOPIC_ROOT", "map-pilot")
 CONTROL_FILTER = f"{TOPIC_ROOT}/control/+"
 
 # Whitelist: only these topic+type pairs are accepted. Keeps a malformed MQTT

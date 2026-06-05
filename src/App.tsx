@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import ControlPanel from "./components/ControlPanel";
 import DecisionLogPanel from "./components/DecisionLogPanel";
+import { VehicleControlPanel } from "./components/VehicleControlPanel";
 import TopicHealthStrip from "./components/TopicHealthStrip";
 import { useBagPlayback } from "./hooks/useBagPlayback";
 import { useCameraFeed } from "./hooks/useCameraFeed";
@@ -1615,6 +1616,7 @@ function App() {
             onStartLidar={() => sendPlaybackCommand("start-lidar")}
             onStopLidar={() => sendPlaybackCommand("stop-lidar")}
           />
+          <VehicleControlPanel sendMessage={sendMessage} />
           <div className="telemetry-charts">
             <VehicleCockpit telemetry={telemetry} time={latestFrame?.time} />
             <SparkChart

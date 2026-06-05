@@ -268,6 +268,129 @@ allow_anonymous true
 
 Then `sudo systemctl restart mosquitto`.
 
+## Connecting to the Vehicle (Full Drive Mode)
+
+This section covers the full two-machine setup where the dashboard sends real control commands to the vehicle.
+
+```
+Dashboard PC                          Vehicle PC (araç bilgisayarı)
+─────────────────                     ──────────────────────────────
+npm run dev          ◄── WebSocket ── npm run vehicle-live
+npm run dashboard-mqtt ──── MQTT ────► mqtt_to_ros.py ──► ROS topics
+                     ◄─── MQTT ──── ros_to_mqtt.py ◄── ROS topics
+```
+
+### Prerequisites on the vehicle PC
+
+1. **ROS 1 Noetic** installed and sourced.
+2. **Custom message packages** built in your workspace:
+   - `dbw_interface` (CruiseControlSignals, VCU_EPS_Control, VCU_EHB_CONTROL)
+   - `beemobs_routine_manager` (SteerControl, BrakeControl, VehicleMode)
+3. **Node.js 18+** — only needed if you run the MapPilot MQTT publisher on the vehicle.
+4. **Mosquitto** (or any MQTT broker) on the vehicle:
+   ```bash
+   sudo apt install mosquitto mosquitto-clients
+   sudo systemctl start mosquitto
+   ```
+
+### Step 1 — Vehicle PC: build and source the ROS bridge
+
+```bash
+mkdir -p ~/ros_ws/src
+cd ~/ros_ws/src
+ln -s /path/to/map-pilot/ros_bridge/mqtt_bridge .
+cd ~/ros_ws
+catkin_make
+```
+
+Source everything in order (add to `~/.bashrc` for convenience):
+
+```bash
+source /opt/ros/noetic/setup.bash
+source /path/to/dbw_interface_ws/devel/setup.bash   # custom msgs
+source ~/ros_ws/devel/setup.bash
+```
+
+### Step 2 — Vehicle PC: launch the full bridge stack
+
+```bash
+roslaunch mqtt_bridge mappilot_stack.launch
+```
+
+This single command starts:
+- `rosbridge_server` (needed for the MapPilot MQTT publisher)
+- `ros_to_mqtt.py` — reads vehicle ROS topics, publishes to MQTT
+- `mqtt_to_ros.py` — receives dashboard control commands from MQTT, publishes to ROS
+
+If the MQTT broker is on a different host, override via environment variables (added in the latest update):
+
+```bash
+MQTT_HOST=192.168.1.10 MQTT_PORT=1883 roslaunch mqtt_bridge mappilot_stack.launch
+```
+
+Or set per-bridge for the Python scripts directly:
+
+```bash
+MQTT_HOST=192.168.1.10 rosrun mqtt_bridge mqtt_to_ros.py
+MQTT_HOST=192.168.1.10 rosrun mqtt_bridge ros_to_mqtt.py
+```
+
+> **Allowed control topics** (anything else is rejected by the whitelist):
+> `/throttle_control`, `/vcu_eps_control`, `/vcu_ehb_control`,
+> `/steer_control`, `/brake_control`, `/autonomous_mode_selection`
+
+### Step 3 — Vehicle PC: start the MapPilot bridge
+
+In a second terminal on the vehicle PC, subscribe to live ROS topics and forward them to MQTT:
+
+```bash
+ROSBRIDGE_URL=ws://localhost:9090 MQTT_URL=mqtt://localhost:1883 npm run vehicle-live
+```
+
+If your topic names differ from the defaults, override:
+
+```bash
+LIVE_ROS_TOPICS=/VelocityInformation,/eps_response,/EHB_BrakingResponse,/steer_control,/brake_control,/scan,/rslidar_points,/imu/data \
+ROSBRIDGE_URL=ws://localhost:9090 \
+MQTT_URL=mqtt://localhost:1883 \
+npm run vehicle-live
+```
+
+### Step 4 — Dashboard PC: connect and open
+
+```bash
+# In terminal 1 — backend
+MQTT_URL=mqtt://VEHICLE_IP:1883 npm run dashboard-mqtt
+
+# In terminal 2 — frontend
+npm run dev
+```
+
+Open `http://localhost:5173/` and switch to **Control** mode in the top bar.
+
+### Step 5 — Sending commands from the dashboard
+
+The **Vehicle Control** panel is in the right sidebar under Control mode.
+
+| Element | Behaviour |
+|---------|-----------|
+| **Arm** button | Enables live control. All sliders become active. |
+| **Deadman timer** | If no input is received for **3 seconds**, the panel automatically disarms and sends a neutral command (`steer=0`, `throttle=0`, `brake=0`) to the vehicle. |
+| **Disarm** button | Immediately sends neutral commands before disabling the panel. |
+| **E-STOP** | Sends `brake_percent=100` and `mode=Emergency` regardless of arm state. If the WebSocket is closed the button flashes yellow — the command did **not** reach the vehicle. |
+
+> **Safety rule:** Always keep a hand near the physical emergency stop. The dashboard E-STOP is software-only and depends on a live WebSocket + MQTT chain.
+
+### Troubleshooting
+
+| Symptom | Check |
+|---------|-------|
+| E-STOP button flashes yellow | WebSocket to backend is closed — check `npm run dashboard-mqtt` on the dashboard PC |
+| Panel stays disarmed after 3 s | Deadman timer fired — move a slider to re-arm |
+| Vehicle ignores steering commands | Verify `mqtt_to_ros.py` is running on the vehicle and `MQTT_HOST` is correct |
+| No telemetry on dashboard | Check `ros_to_mqtt.py` is running and topic names match |
+| `mqtt_to_ros.py` can't connect | Set `MQTT_HOST=<broker_ip>` — default is `localhost` |
+
 ## Desktop `enes_ws` Bag Playback
 
 Offline bag playback remains available for test/debug work. It is not the primary production input. The backend defaults to the ROS1 bags in `~/Desktop/enes_ws/bag`:

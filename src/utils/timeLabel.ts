@@ -1,3 +1,7 @@
+export function currentTimeString() {
+  return new Date().toLocaleTimeString();
+}
+
 export function timeStringToSeconds(time?: string | number) {
   if (time === undefined || time === null || time === "") {
     return 0;

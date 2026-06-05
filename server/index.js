@@ -25,6 +25,7 @@ import { telemetryBus, BUS_EVENTS } from "./services/telemetryBus.js";
 import { telemetryStore } from "./services/telemetryStore.js";
 import { topicHealthService } from "./services/topicHealthService.js";
 import { createMqttPublisher } from "./transport/mqttPublisher.js";
+import { createControlPublisher } from "./transport/controlPublisher.js";
 
 const WS_PORT = Number(process.env.WS_PORT || 4000);
 const LIDAR_SOURCE = process.env.LIDAR_SOURCE || "bag";
@@ -112,6 +113,7 @@ telemetryBus.on(BUS_EVENTS.ENVELOPE, (envelope) => {
 
 const mqttPublisher = createMqttPublisher();
 mqttPublisher.start();
+const controlPublisher = createControlPublisher();
 topicHealthService.start();
 
 // ---------------------------------------------------------------------------
@@ -229,6 +231,17 @@ wss.on("connection", (ws) => {
       if (payload.type === "seek-playback" && typeof lidarSource.seek === "function") {
         lidarSource.seek(Number(payload.ratio || 0));
       }
+
+      if (payload.type === "control-command") {
+        const result = controlPublisher.publish({
+          topic: payload.topic,
+          msgType: payload.msgType,
+          message: payload.message,
+        });
+        if (!result.ok) {
+          ws.send(JSON.stringify({ type: "backend-error", message: `Control rejected: ${result.reason}` }));
+        }
+      }
     } catch (err) {
       console.error("Invalid client message:", err);
     }
@@ -238,3 +251,28 @@ wss.on("connection", (ws) => {
 wss.on("listening", () => {
   logStartupDiagnostics();
 });
+
+// ---------------------------------------------------------------------------
+// Graceful shutdown
+// ---------------------------------------------------------------------------
+
+let isShuttingDown = false;
+
+function shutdown(signal) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log(`\n${signal} received — shutting down gracefully`);
+  lidarSource?.stop?.();
+  mqttPublisher.stop?.();
+  controlPublisher.stop?.();
+  topicHealthService.stop?.();
+  wss.close(() => {
+    console.log("WebSocket server closed");
+    process.exit(0);
+  });
+  // Fallback: if graceful shutdown stalls (e.g., hanging socket), force exit
+  setTimeout(() => { console.error("Forced exit after timeout"); process.exit(1); }, 5000).unref();
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT",  () => shutdown("SIGINT"));
