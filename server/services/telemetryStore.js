@@ -100,6 +100,9 @@ function createStore() {
   }
 
   function reset() {
+    // Delete all existing keys before re-applying empty state, otherwise
+    // dynamically-added fields (e.g. speed, vehicle.*) survive the reset.
+    for (const key of Object.keys(state)) delete state[key];
     Object.assign(state, createEmptyTelemetry());
     lastUpdateMs.clear();
   }

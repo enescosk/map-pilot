@@ -13,7 +13,9 @@
     "vehicle-live": "LIDAR_SOURCE=vehicle-ros MQTT_PUBLISH=true npm run server",
     "dashboard-mqtt": "LIDAR_SOURCE=mqtt npm run server",
     "offline-bag": "LIDAR_SOURCE=bag npm run server",
-    "server": "node server/index.js"
+    "server": "node server/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "aedes": "^1.0.2",
@@ -40,6 +42,7 @@
     "playwright": "^1.59.1",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.58.2",
-    "vite": "^8.0.10"
+    "vite": "^8.0.10",
+    "vitest": "^4.1.8"
   }
 }
