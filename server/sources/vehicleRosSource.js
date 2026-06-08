@@ -37,6 +37,33 @@ export const LIVE_ROS_TOPICS = (process.env.LIVE_ROS_TOPICS || process.env.VEHIC
   .map((topic) => topic.trim())
   .filter(Boolean);
 
+// rosbridge_server v0.11+ omits msg._type. We infer it from the topic name
+// shape so normalizers can dispatch correctly without an extra service round-trip.
+function inferRosTypeFromTopic(topic, msg) {
+  const t = topic.toLowerCase();
+  if (t.includes("compressed") && !t.includes("depth")) return "sensor_msgs/CompressedImage";
+  if (t.includes("image_raw") || /\/image(?!_rect)/.test(t) || (msg?.width && msg?.height && msg?.encoding)) return "sensor_msgs/Image";
+  if (t.endsWith("/scan") || t.includes("laser_scan")) return "sensor_msgs/LaserScan";
+  if (t.includes("rslidar_points") || t.includes("point_cloud") || t === "/cloud" || t.endsWith("/cloud")) return "sensor_msgs/PointCloud2";
+  if (t.includes("/odom") || t.includes("odometry")) return "nav_msgs/Odometry";
+  if (t.includes("imu/data")) return "sensor_msgs/Imu";
+  if (t === "/navsatfix" || t.includes("navsat")) return "sensor_msgs/NavSatFix";
+  if (t === "/heading") return "std_msgs/Float64";
+  if (t.endsWith("/velocityinformation")) return "dbw_interface/VelocityInformation";
+  if (t.endsWith("/eps_response")) return "dbw_interface/EPS_Response";
+  if (t.endsWith("/ehb_brakingresponse")) return "dbw_interface/EHB_BrakingResponse";
+  if (t.endsWith("/fb_motor_driver_report")) return "dbw_interface/FB_MotorDriver";
+  if (t.endsWith("/autonomous_report")) return "dbw_interface/AutonomousHeardBit";
+  if (t.endsWith("/rc_unit_report")) return "dbw_interface/FB_OMUX_to_AUTONOMOUS";
+  if (t.endsWith("/throttle_control")) return "dbw_interface/CruiseControlSignals";
+  if (t.endsWith("/vcu_eps_control")) return "dbw_interface/VCU_EPS_Control";
+  if (t.endsWith("/vcu_ehb_control")) return "dbw_interface/VCU_EHB_Control";
+  if (t.endsWith("/steer_control")) return "dbw_interface/SteerControl";
+  if (t.endsWith("/brake_control")) return "dbw_interface/BrakeControl";
+  if (t.endsWith("/autonomous_mode_selection")) return "dbw_interface/VehicleMode";
+  return "";
+}
+
 export function createVehicleRosSource({ emit, url } = {}) {
   const rosbridgeUrl = url || process.env.ROSBRIDGE_URL || ROSBRIDGE_URL;
   let rosSocket;
@@ -125,9 +152,13 @@ export function createVehicleRosSource({ emit, url } = {}) {
           return;
         }
 
+        // rosbridge_server doesn't include msg._type. Infer it from topic name
+        // shape so downstream normalizers can dispatch correctly.
+        const inferredType = packet.msg._type || inferRosTypeFromTopic(packet.topic, packet.msg);
+
         const normalized = normalizeFrame({
           topic: packet.topic,
-          type: packet.msg._type || "",
+          type: inferredType,
           time: rosTimeToString(packet.msg.header?.stamp),
           source: "vehicle-ros",
           message: packet.msg,
