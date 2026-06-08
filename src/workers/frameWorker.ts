@@ -134,12 +134,33 @@ self.onmessage = (ev: MessageEvent) => {
   const { type, payload } = ev.data as { type: string; payload: unknown };
 
   if (type === "parse-binary") {
-    // Format: [4 bytes header length LE] [header JSON utf8] [Float32 xyzi interleaved]
     const buf = payload as ArrayBuffer;
     const view = new DataView(buf);
     const headerLen = view.getUint32(0, true);
     const headerBytes = new Uint8Array(buf, 4, headerLen);
-    const header = JSON.parse(new TextDecoder().decode(headerBytes)) as {
+    const headerObj = JSON.parse(new TextDecoder().decode(headerBytes)) as Record<string, unknown>;
+
+    // Camera-binary: header + raw JPEG bytes. Decode here off the main thread.
+    if (headerObj.type === "camera-binary") {
+      const dataOffset = 4 + headerLen;
+      const jpegBytes = buf.slice(dataOffset);
+      const blob = new Blob([jpegBytes], { type: (headerObj.mime as string) || "image/jpeg" });
+      // createImageBitmap is available in workers. Send the bitmap to main thread by transfer.
+      createImageBitmap(blob).then((bmp) => {
+        self.postMessage({
+          type: "camera-bitmap-ready",
+          topic: headerObj.topic,
+          time: headerObj.time,
+          resolution: headerObj.resolution,
+          fps: headerObj.fps,
+          bitmap: bmp,
+        }, [bmp]);
+      }).catch(() => { /* drop frame on decode error */ });
+      return;
+    }
+
+    // Point-cloud-binary: header + Float32 xyzi interleaved.
+    const header = headerObj as {
       type: string; topic: string; time: string; source: string;
       frameId: string; resolvedFrame: string; n: number;
     };

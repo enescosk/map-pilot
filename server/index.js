@@ -132,10 +132,44 @@ function packPointCloudBinary(envelope) {
   return Buffer.concat([headerLen, headerBuf, xyzi]);
 }
 
+/**
+ * Pack a camera-frame envelope as binary:
+ *   [4 bytes header length LE] [header JSON utf8] [raw JPEG bytes]
+ *
+ * Avoids base64 encode/decode (~133% size overhead + main-thread decode cost).
+ * Worker wraps the JPEG bytes as a Blob and calls createImageBitmap off-thread.
+ */
+function packCameraBinary(envelope) {
+  const src = envelope.src || "";
+  // Only handle data URLs we created ourselves; pass through stream URLs as JSON.
+  const m = /^data:image\/[a-z]+;base64,(.+)$/i.exec(src);
+  if (!m) return null;
+  const jpegBuf = Buffer.from(m[1], "base64");
+  const header = {
+    type: "camera-binary",
+    topic: envelope.topic || "",
+    time: envelope.time || "",
+    source: envelope.source || "",
+    resolution: envelope.resolution || "",
+    fps: Number(envelope.fps || 0),
+    mime: "image/jpeg",
+  };
+  const headerBuf = Buffer.from(JSON.stringify(header), "utf8");
+  const headerLen = Buffer.alloc(4);
+  headerLen.writeUInt32LE(headerBuf.length, 0);
+  return Buffer.concat([headerLen, headerBuf, jpegBuf]);
+}
+
 function broadcast(envelope) {
-  // Hot path: point-cloud → binary frame. Everything else → JSON.
-  const isBinaryEligible = envelope?.type === "point-cloud" && Array.isArray(envelope.points) && envelope.points.length > 0;
-  const payload = isBinaryEligible ? packPointCloudBinary(envelope) : JSON.stringify(envelope);
+  // Hot paths: point-cloud + camera-frame → binary. Everything else → JSON.
+  let payload;
+  if (envelope?.type === "point-cloud" && Array.isArray(envelope.points) && envelope.points.length > 0) {
+    payload = packPointCloudBinary(envelope);
+  } else if (envelope?.type === "camera-frame" && typeof envelope.src === "string" && envelope.src.startsWith("data:")) {
+    payload = packCameraBinary(envelope) || JSON.stringify(envelope);
+  } else {
+    payload = JSON.stringify(envelope);
+  }
 
   for (const client of wss.clients) {
     if (client.readyState !== 1) continue;
