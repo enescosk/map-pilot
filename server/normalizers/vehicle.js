@@ -31,8 +31,10 @@ export function normalizeVehicleTelemetry(message, type, topic) {
   if (lowerType.includes("velocityinformation") || lowerTopic.includes("velocityinformation")) {
     const speed = scaledNumberOrUndefined(message.VelocityMS, 0.01);
     const speedKmh = scaledNumberOrUndefined(message.VelocityKMH, 0.1);
-    if (speed !== undefined) telemetry.speed = speed;
-    if (speedKmh !== undefined) vehicle.speedKmh = speedKmh;
+    // CAN bus sends empty frames (0) between real updates — ignore zero values
+    // so the last valid reading is preserved in state.
+    if (speed !== undefined && speed > 0) telemetry.speed = speed;
+    if (speedKmh !== undefined && speedKmh > 0) vehicle.speedKmh = speedKmh;
   }
 
   if (lowerType.includes("eps_response") || lowerTopic.includes("eps_response")) {

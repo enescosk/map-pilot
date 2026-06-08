@@ -35,11 +35,10 @@ describe("VelocityInformation", () => {
     expect(result.vehicle.speedKmh).toBeCloseTo(72.0);
   });
 
-  it("returns 0 for null fields (null coerces to 0 via Number)", () => {
-    const result = norm("VelocityInformation", { VelocityMS: null, VelocityKMH: undefined });
-    // null → Number(null) = 0 → speed = 0 * 0.01 = 0; undefined → undefined
-    expect(result.speed).toBeCloseTo(0);
-    expect(result.vehicle.speedKmh).toBeUndefined();
+  it("ignores zero/null velocity fields (CAN empty frames)", () => {
+    const result = norm("VelocityInformation", { VelocityMS: null, VelocityKMH: 0 });
+    // All zeros → nothing to write → normalizer returns undefined so state is unchanged.
+    expect(result).toBeUndefined();
   });
 });
 
