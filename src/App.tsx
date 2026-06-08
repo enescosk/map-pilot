@@ -34,7 +34,7 @@ const WS_URL =
   import.meta.env.VITE_WS_URL ||
   `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.hostname}:4000`;
 
-export type WorkspaceMode = "perception" | "control" | "debug";
+export type WorkspaceMode = "perception" | "debug";
 
 export type RobotStatus = {
   name: string;
@@ -1573,7 +1573,6 @@ function App() {
         </label>
         <div className="mode-switcher">
           <button type="button" className={mode === "perception" ? "active" : ""} onClick={() => setMode("perception")}>Cockpit</button>
-          <button type="button" className={mode === "control" ? "active" : ""} onClick={() => setMode("control")}>Control</button>
           <button type="button" className={mode === "debug" ? "active" : ""} onClick={() => setMode("debug")}>LiDAR</button>
         </div>
         <div className="top-actions">

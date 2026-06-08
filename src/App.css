@@ -417,8 +417,7 @@ button:hover {
    CENTER: cockpit (perception/control) OR lidar (debug)
    RIGHT: camera (zed2i, big) + decision log */
 
-.mode-perception,
-.mode-control {
+.mode-perception {
   grid-template-columns: 320px minmax(0, 1fr) minmax(480px, 1.1fr);
 }
 .mode-debug {
