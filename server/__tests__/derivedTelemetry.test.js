@@ -58,9 +58,10 @@ describe("Odometry", () => {
     expect(result.speed).toBeDefined();
   });
 
-  it("handles missing twist gracefully (defaults to 0 speed)", () => {
+  it("handles missing twist gracefully (zero speed is not emitted)", () => {
     const result = norm("nav_msgs/Odometry", {});
-    expect(result.speed).toBe(0);
+    // Zero speed from missing/zero twist is filtered — state holds last valid reading.
+    expect(result.speed).toBeUndefined();
   });
 });
 

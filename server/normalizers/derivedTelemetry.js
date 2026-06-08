@@ -42,7 +42,9 @@ export function normalizeDerivedTelemetry(message, type, topic, options = {}) {
     const linear = message.twist?.twist?.linear || {};
     const angular = message.twist?.twist?.angular || {};
     const speedMps = finiteVectorMagnitude(linear);
-    if (!options.nativeSpeedAvailable) {
+    // Only write speed when non-zero — odom packets with zero twist are noise,
+    // not genuine stops. State holds last valid reading until a real value arrives.
+    if (!options.nativeSpeedAvailable && speedMps > 0) {
       telemetry.speed = Number(speedMps.toFixed(3));
       vehicle.speedKmh = Number((speedMps * 3.6).toFixed(2));
     }
