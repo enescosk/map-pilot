@@ -56,7 +56,7 @@ function routeThroughTopicMap({ message, type, topic, time, source }) {
   }
 
   if (!patch || typeof patch !== "object") {
-    healthRegistry.recordError(topic, "extractor returned empty patch");
+    // null/undefined means "nothing to emit this frame" (e.g. zero CAN frame) — not an error.
     return undefined;
   }
 

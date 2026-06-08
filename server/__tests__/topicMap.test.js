@@ -30,13 +30,14 @@ describe("matchTopicEntry", () => {
 describe("velocity entry extractor", () => {
   const entry = TOPIC_MAP.find((e) => e.id === "velocity");
 
-  it("extracts speedMps and speedKmh with units", () => {
+  it("extracts speedMps from VelocityMS and derives km/h via ×3.6 (VelocityKMH ignored)", () => {
+    // VelocityMS=200 → ×0.01 = 2.0 m/s → ×3.6 = 7.2 km/h
     const result = entry.extract({ VelocityMS: 200, VelocityKMH: 720 });
     expect(result.vehicle.speedMps).toEqual({ value: 2.0, unit: "m/s" });
-    expect(result.vehicle.speedKmh).toEqual({ value: 72.0, unit: "km/h" });
+    expect(result.vehicle.speedKmh).toEqual({ value: 7.2, unit: "km/h" });
   });
 
-  it("derives kmh from mps when VelocityKMH is absent", () => {
+  it("derives km/h from VelocityMS when VelocityKMH is absent", () => {
     const result = entry.extract({ VelocityMS: 100 });
     expect(result.vehicle.speedMps.value).toBeCloseTo(1.0);
     expect(result.vehicle.speedKmh.value).toBeCloseTo(3.6);

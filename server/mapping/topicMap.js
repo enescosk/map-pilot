@@ -26,13 +26,17 @@ export const TOPIC_MAP = [
     type: /VelocityInformation/i,
     extract: (msg) => {
       const speedMps = scaledNumberOrUndefined(msg.VelocityMS, 0.01);
-      const speedKmh = scaledNumberOrUndefined(msg.VelocityKMH, 0.1);
-      // Derive kmh from m/s if the dedicated kmh field is missing.
-      const derivedKmh = speedKmh ?? (speedMps !== undefined ? mpsToKmh(speedMps) : undefined);
-      const vehicle = {};
-      if (speedMps !== undefined) vehicle.speedMps = vu(speedMps, "m/s");
-      if (derivedKmh !== undefined) vehicle.speedKmh = vu(derivedKmh, "km/h");
-      return Object.keys(vehicle).length ? { vehicle } : undefined;
+      // VelocityKMH has inconsistent CAN DBC scale — derive km/h from VelocityMS only.
+      // Ignore zero values: CAN bus sends empty frames (0) between real updates.
+      if (!speedMps || speedMps <= 0) return undefined;
+      const speedKmh = Number((speedMps * 3.6).toFixed(2));
+      return {
+        vehicle: {
+          speedMps: vu(speedMps, "m/s"),
+          speedKmh: vu(speedKmh, "km/h"),
+        },
+        speed: speedMps,
+      };
     },
   },
   {

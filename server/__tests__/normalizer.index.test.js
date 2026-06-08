@@ -20,7 +20,7 @@ describe("normalizeFrame — canonical pipeline (topic map)", () => {
     });
     expect(result.type).toBe("telemetry");
     expect(result.telemetry.speed).toBeCloseTo(2.0);
-    expect(result.telemetry.vehicle.speedKmh).toBeCloseTo(72.0);
+    expect(result.telemetry.vehicle.speedKmh).toBeCloseTo(7.2);
   });
 
   it("routes /eps_response through topic map", () => {
