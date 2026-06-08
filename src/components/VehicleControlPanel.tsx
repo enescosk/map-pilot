@@ -6,7 +6,7 @@
 //   2. A 3-second deadman re-arms safe mode automatically if the user stops
 //      issuing inputs (any slider movement / button press counts).
 
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { currentTimeString } from "../utils/timeLabel";
 import "./VehicleControlPanel.css";
 
@@ -26,7 +26,13 @@ const STEER_MAX = 90;
 const SPEED_MAX = 60; // km/h cap for the UI
 const BRAKE_MAX = 100;
 
-export function VehicleControlPanel({ sendMessage }: { sendMessage: SendMessage }) {
+export function VehicleControlPanel({
+  sendMessage,
+  onEmergencyStopReady,
+}: {
+  sendMessage: SendMessage;
+  onEmergencyStopReady?: (fn: () => void) => void;
+}) {
   const [liveControl, setLiveControl] = useState(false);
   const [steer, setSteer] = useState(0);
   const [steerSpeed, setSteerSpeed] = useState(15);
@@ -40,6 +46,13 @@ export function VehicleControlPanel({ sendMessage }: { sendMessage: SendMessage 
   const estopFailed = lastSent.includes("E-STOP FAILED");
 
   const deadmanTimer = useRef<number | undefined>(undefined);
+  const steerDebounceTimer = useRef<number | undefined>(undefined);
+
+  const sendSteerDebounced = useCallback((value: number, speed: number) => {
+    if (steerDebounceTimer.current) window.clearTimeout(steerDebounceTimer.current);
+    steerDebounceTimer.current = window.setTimeout(() => sendSteer(value, speed), 30);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveControl]);
 
   // Bypasses liveControl — sends zero commands on disarm so vehicle doesn't hold last command.
   function sendNeutral(steerSpeedDeg: number) {
@@ -76,8 +89,15 @@ export function VehicleControlPanel({ sendMessage }: { sendMessage: SendMessage 
   useEffect(() => {
     return () => {
       if (deadmanTimer.current) window.clearTimeout(deadmanTimer.current);
+      if (steerDebounceTimer.current) window.clearTimeout(steerDebounceTimer.current);
     };
   }, []);
+
+  // Register emergencyStop with parent so Space key can trigger it globally
+  useEffect(() => {
+    onEmergencyStopReady?.(emergencyStop);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onEmergencyStopReady]);
 
   function sendSteer(value: number, speed: number) {
     send("/steer_control", "beemobs_routine_manager/SteerControl", {
@@ -107,27 +127,42 @@ export function VehicleControlPanel({ sendMessage }: { sendMessage: SendMessage 
 
   function emergencyStop() {
     // E-stop bypasses the arm toggle — send immediately regardless of disarmed state.
-    const ok1 = sendMessage({
-      type: "control-command",
-      topic: "/brake_control",
-      msgType: "beemobs_routine_manager/BrakeControl",
-      message: { brake_percent: BRAKE_MAX },
-    });
-    const ok2 = sendMessage({
-      type: "control-command",
-      topic: "/autonomous_mode_selection",
-      msgType: "beemobs_routine_manager/VehicleMode",
-      message: { mode: 3 },
-    });
+    // Both messages must be sent. Retry up to 3 times with a short gap if WS is busy.
+    let attempts = 0;
+    const MAX_ATTEMPTS = 3;
+
+    function trySend() {
+      attempts += 1;
+      const ok1 = sendMessage({
+        type: "control-command",
+        topic: "/brake_control",
+        msgType: "beemobs_routine_manager/BrakeControl",
+        message: { brake_percent: BRAKE_MAX },
+      });
+      const ok2 = sendMessage({
+        type: "control-command",
+        topic: "/autonomous_mode_selection",
+        msgType: "beemobs_routine_manager/VehicleMode",
+        message: { mode: 3 },
+      });
+
+      if (!ok1 || !ok2) {
+        if (attempts < MAX_ATTEMPTS) {
+          window.setTimeout(trySend, 80);
+          setLastSent(`${currentTimeString()}  E-STOP yeniden deneniyor (${attempts}/${MAX_ATTEMPTS})…`);
+        } else {
+          setLastSent(`${currentTimeString()}  E-STOP FAILED — WebSocket kapalı!`);
+        }
+      } else {
+        setLastSent(`${currentTimeString()}  E-STOP ✓`);
+      }
+    }
+
     setBrake(BRAKE_MAX);
     setMode(3);
     setSetSpeed(0);
     setCruiseActive(false);
-    if (!ok1 || !ok2) {
-      setLastSent(`${currentTimeString()}  E-STOP FAILED — WebSocket kapalı!`);
-    } else {
-      setLastSent(`${currentTimeString()}  E-STOP`);
-    }
+    trySend();
   }
 
   const steerStyle = {
@@ -175,7 +210,7 @@ export function VehicleControlPanel({ sendMessage }: { sendMessage: SendMessage 
             onChange={(e) => {
               const v = Number(e.target.value);
               setSteer(v);
-              sendSteer(v, steerSpeed);
+              sendSteerDebounced(v, steerSpeed);
             }}
             onDoubleClick={() => {
               setSteer(0);

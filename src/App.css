@@ -233,6 +233,13 @@ button:hover {
   color: var(--text-muted);
 }
 
+.status-pill.warn {
+  animation: mp-pulse 1.2s ease-in-out infinite;
+  background: rgba(251, 191, 36, 0.12);
+  border-color: rgba(251, 191, 36, 0.45);
+  color: var(--warn);
+}
+
 .status-pill.muted::before {
   opacity: 0.5;
 }
@@ -244,13 +251,12 @@ button:hover {
   border-bottom: 1px solid var(--border-subtle);
   color: var(--text-secondary);
   display: flex;
+  flex-wrap: wrap;
   font-family: var(--mono);
   gap: 12px;
   min-height: 30px;
-  overflow: hidden;
   padding: 5px 22px;
   position: relative;
-  white-space: nowrap;
   z-index: 9;
 }
 
@@ -266,6 +272,84 @@ button:hover {
   height: 7px;
   width: 7px;
 }
+
+.health-warn { color: var(--warn); }
+.health-error { color: var(--danger); }
+
+.health-detail-btn {
+  background: none;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  padding: 1px 6px;
+}
+.health-detail-btn:hover { border-color: var(--border-strong); color: var(--text-secondary); }
+
+.health-detail-dropdown {
+  background: var(--bg-panel-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  display: flex;
+  flex-basis: 100%;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 8px 12px;
+  width: 100%;
+}
+
+.health-detail-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.health-detail-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  width: 100%;
+}
+
+.health-detail-item {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  cursor: default;
+  font-size: 0.65rem;
+  padding: 2px 7px;
+}
+.health-detail-item:hover { border-color: var(--border-strong); }
+
+/* Backend error banner */
+.backend-error-banner {
+  align-items: center;
+  animation: mp-pulse-danger 1.5s ease-in-out 3;
+  background: rgba(248, 113, 113, 0.1);
+  border-bottom: 1px solid rgba(248, 113, 113, 0.35);
+  color: var(--danger);
+  display: flex;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 6px 22px;
+  z-index: 10;
+}
+
+.backend-error-banner button {
+  background: none;
+  border: none;
+  color: var(--danger);
+  cursor: pointer;
+  font-size: 0.9rem;
+  opacity: 0.7;
+}
+.backend-error-banner button:hover { opacity: 1; }
 
 .health-dot.fresh {
   background: var(--success);
@@ -1609,4 +1693,82 @@ button:hover {
   .playback-bar {
     grid-template-columns: 1fr;
   }
+}
+
+/* ── Connection Panel ─────────────────────────────────────────── */
+.connection-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+}
+
+.connection-panel h2 {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted, #888);
+  margin: 0 0 4px;
+}
+
+.conn-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.conn-row label {
+  font-size: 0.75rem;
+  color: var(--text-muted, #888);
+  width: 64px;
+  flex-shrink: 0;
+}
+
+.conn-row select,
+.conn-row input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  background: var(--surface-2, #1e1e2e);
+  border: 1px solid var(--border, #333);
+  border-radius: 4px;
+  color: inherit;
+  font-size: 0.8rem;
+}
+
+.conn-hint {
+  font-size: 0.7rem;
+  color: var(--text-muted, #666);
+  width: 100%;
+  padding-left: 72px;
+}
+
+.conn-btn {
+  margin-top: 4px;
+  padding: 7px 0;
+  background: var(--accent, #6366f1);
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+}
+
+.conn-btn:hover {
+  opacity: 0.88;
+}
+
+.conn-error {
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  border-radius: 6px;
+  color: var(--danger);
+  font-size: 0.72rem;
+  margin-top: 8px;
+  padding: 6px 10px;
+  word-break: break-all;
 }

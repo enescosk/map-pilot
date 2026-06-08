@@ -162,6 +162,11 @@ export type BackendErrorMessage = {
   topic?: string;
 };
 
+export type SourceChangedMessage = {
+  type: "source-changed";
+  source: string;
+};
+
 export type UnknownLiveMessage = {
   type?: string;
   [key: string]: unknown;
@@ -180,4 +185,5 @@ export type LiveMessage =
   | BagFrameMessage
   | BagStatusMessage
   | TopicHealthMessage
-  | BackendErrorMessage;
+  | BackendErrorMessage
+  | SourceChangedMessage;

@@ -96,19 +96,25 @@ function emitFromSource(envelope) {
   telemetryBus.emit(BUS_EVENTS.ENVELOPE, envelope);
 }
 
+const MAX_BUFFERED_BYTES = 512 * 1024; // 512 KB — drop slow clients rather than OOM
+
+function broadcast(envelope) {
+  const payload = JSON.stringify(envelope);
+  for (const client of wss.clients) {
+    if (client.readyState !== 1) continue;
+    if (client.bufferedAmount > MAX_BUFFERED_BYTES) {
+      // Client can't keep up — skip this frame to avoid queuing unboundedly
+      continue;
+    }
+    client.send(payload);
+  }
+}
+
 telemetryBus.on(BUS_EVENTS.ENVELOPE, (envelope) => {
   if (envelope?.type === "telemetry") {
     latestTelemetryEnvelope = envelope;
   }
-});
-
-telemetryBus.on(BUS_EVENTS.ENVELOPE, (envelope) => {
-  const payload = JSON.stringify(envelope);
-  for (const client of wss.clients) {
-    if (client.readyState === 1) {
-      client.send(payload);
-    }
-  }
+  broadcast(envelope);
 });
 
 const mqttPublisher = createMqttPublisher();
@@ -120,18 +126,19 @@ topicHealthService.start();
 // Source factory + lifecycle
 // ---------------------------------------------------------------------------
 
-function createLidarSource() {
-  if (LIDAR_SOURCE === "bag") {
+function createLidarSource(sourceOverride, rosbridgeUrlOverride, mqttUrlOverride) {
+  const src = sourceOverride || LIDAR_SOURCE;
+  if (src === "bag") {
     return createBagPlaybackSource({ emit: emitFromSource, filePath: selectedBagPath });
   }
-  if (LIDAR_SOURCE === "ros") {
-    return createRosBridgeLidarSource({ emit: emitFromSource });
+  if (src === "ros") {
+    return createRosBridgeLidarSource({ emit: emitFromSource, url: rosbridgeUrlOverride });
   }
-  if (LIDAR_SOURCE === "vehicle-ros") {
-    return createVehicleRosSource({ emit: emitFromSource });
+  if (src === "vehicle-ros") {
+    return createVehicleRosSource({ emit: emitFromSource, url: rosbridgeUrlOverride });
   }
-  if (LIDAR_SOURCE === "mqtt") {
-    return createMqttBridgeSource({ emit: emitFromSource });
+  if (src === "mqtt") {
+    return createMqttBridgeSource({ emit: emitFromSource, url: mqttUrlOverride });
   }
   return createDirectLidarSource({ emit: emitFromSource });
 }
@@ -201,11 +208,11 @@ wss.on("connection", (ws) => {
       const payload = JSON.parse(message.toString());
 
       if (payload.type === "start-lidar") {
-        lidarSource.start();
+        lidarSource?.start();
       }
 
       if (payload.type === "stop-lidar") {
-        lidarSource.stop();
+        lidarSource?.stop();
       }
 
       if (payload.type === "list-bags") {
@@ -214,6 +221,11 @@ wss.on("connection", (ws) => {
 
       if (payload.type === "load-bag" && typeof payload.path === "string") {
         const requestedPath = path.resolve(payload.path);
+        const resolvedBagDir = path.resolve(BAG_DIRECTORY);
+        if (!requestedPath.startsWith(resolvedBagDir + path.sep) && requestedPath !== resolvedBagDir) {
+          ws.send(JSON.stringify({ type: "backend-error", message: "Bag file must be inside the bag directory" }));
+          return;
+        }
         if (!fs.existsSync(requestedPath)) {
           ws.send(JSON.stringify({ type: "backend-error", message: `Bag file not found: ${requestedPath}` }));
           return;
@@ -228,8 +240,40 @@ wss.on("connection", (ws) => {
         lidarSource.start();
       }
 
-      if (payload.type === "seek-playback" && typeof lidarSource.seek === "function") {
+      if (payload.type === "seek-playback" && typeof lidarSource?.seek === "function") {
         lidarSource.seek(Number(payload.ratio || 0));
+      }
+
+      if (payload.type === "connect-source") {
+        const { source, rosbridgeUrl, mqttUrl } = payload;
+        const allowed = ["vehicle-ros", "mqtt", "bag", "ros"];
+        if (!allowed.includes(source)) {
+          ws.send(JSON.stringify({ type: "backend-error", message: `Unknown source: ${source}` }));
+          return;
+        }
+        if (rosbridgeUrl !== undefined) {
+          let parsedRos;
+          try { parsedRos = new URL(rosbridgeUrl); } catch { parsedRos = null; }
+          if (!parsedRos || !["ws:", "wss:"].includes(parsedRos.protocol)) {
+            ws.send(JSON.stringify({ type: "backend-error", message: "rosbridgeUrl must be a ws:// or wss:// URL" }));
+            return;
+          }
+        }
+        if (mqttUrl !== undefined) {
+          let parsedMqtt;
+          try { parsedMqtt = new URL(mqttUrl); } catch { parsedMqtt = null; }
+          if (!parsedMqtt || !["mqtt:", "mqtts:", "tcp:", "tls:"].includes(parsedMqtt.protocol)) {
+            ws.send(JSON.stringify({ type: "backend-error", message: "mqttUrl must be a mqtt:// or mqtts:// URL" }));
+            return;
+          }
+        }
+        latestTelemetryEnvelope = undefined;
+        telemetryStore.reset();
+        setLidarSource(createLidarSource(source, rosbridgeUrl, mqttUrl));
+        lidarSource.start();
+        broadcast({ type: "source-changed", source });
+        ws.send(JSON.stringify(lidarSource.getStatus()));
+        console.log(`Source changed to ${source} via UI (rosbridge=${sanitizeUrlForLog(rosbridgeUrl || "-")} mqtt=${sanitizeUrlForLog(mqttUrl || "-")})`);
       }
 
       if (payload.type === "control-command") {

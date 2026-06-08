@@ -15,8 +15,11 @@ function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 function deepMerge(target, patch, pathPrefix, touched) {
   for (const [key, value] of Object.entries(patch)) {
+    if (FORBIDDEN_KEYS.has(key)) continue;
     if (value === undefined) continue;
     const path = pathPrefix ? `${pathPrefix}.${key}` : key;
 
@@ -60,7 +63,10 @@ function validate(stored, touchedPaths) {
 }
 
 function readPath(obj, path) {
-  return path.split(".").reduce((acc, key) => (acc == null ? acc : acc[key]), obj);
+  return path.split(".").reduce((acc, key) => {
+    if (acc == null || FORBIDDEN_KEYS.has(key)) return undefined;
+    return acc[key];
+  }, obj);
 }
 
 function createStore() {

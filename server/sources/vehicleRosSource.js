@@ -24,6 +24,7 @@ export const DEFAULT_LIVE_ROS_TOPICS = [
   "/cloud",
   "/camera/image_raw",
   "/out/compressed",
+  "/zed2i/zed_node/rgb/image_rect_color/compressed",
   "/imu/data",
   "/zed2i/zed_node/imu/data",
   "/ekf/odometry_earth",
@@ -36,7 +37,8 @@ export const LIVE_ROS_TOPICS = (process.env.LIVE_ROS_TOPICS || process.env.VEHIC
   .map((topic) => topic.trim())
   .filter(Boolean);
 
-export function createVehicleRosSource({ emit }) {
+export function createVehicleRosSource({ emit, url } = {}) {
+  const rosbridgeUrl = url || process.env.ROSBRIDGE_URL || ROSBRIDGE_URL;
   let rosSocket;
   let connected = false;
   let subscribed = false;
@@ -48,6 +50,23 @@ export function createVehicleRosSource({ emit }) {
       source: "vehicle-ros",
       topic: LIVE_ROS_TOPICS.join(", "),
     };
+  }
+
+  function emitTopicList() {
+    emit({
+      type: "bag-status",
+      connected: true,
+      playing: true,
+      source: "vehicle-ros",
+      path: "",
+      frameCount: 0,
+      cursor: 0,
+      topics: LIVE_ROS_TOPICS.map((t) => ({ topic: t, type: "", count: 0 })),
+      currentTime: "",
+      startTime: "",
+      endTime: "",
+      durationSeconds: 0,
+    });
   }
 
   function subscribe() {
@@ -62,6 +81,7 @@ export function createVehicleRosSource({ emit }) {
       }));
     }
     subscribed = true;
+    emitTopicList();
   }
 
   function unsubscribe() {
@@ -79,12 +99,18 @@ export function createVehicleRosSource({ emit }) {
   }
 
   function start() {
-    if (rosSocket && rosSocket.readyState <= WebSocket.OPEN) {
-      subscribe();
-      return;
+    if (rosSocket) {
+      if (rosSocket.readyState === WebSocket.OPEN) {
+        subscribe();
+        return;
+      }
+      // Stale socket in a non-OPEN state — close it cleanly before reconnecting
+      rosSocket.close();
+      rosSocket = undefined;
+      subscribed = false;
     }
 
-    rosSocket = new WebSocket(ROSBRIDGE_URL);
+    rosSocket = new WebSocket(rosbridgeUrl);
 
     rosSocket.on("open", () => {
       connected = true;

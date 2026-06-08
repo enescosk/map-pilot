@@ -31,6 +31,8 @@ export function imageToSource(message) {
   return "";
 }
 
+const MAX_COMPRESSED_BYTES = 8 * 1024 * 1024; // 8 MB — sanity cap for a single frame
+
 export function compressedImageToSource(message) {
   if (!message?.data) {
     return "";
@@ -38,9 +40,27 @@ export function compressedImageToSource(message) {
 
   const format = String(message.format || "jpeg").toLowerCase();
   const mime = format.includes("png") ? "image/png" : "image/jpeg";
-  const data = Buffer.isBuffer(message.data) ? message.data : Buffer.from(message.data);
-  return `data:${mime};base64,${data.toString("base64")}`;
+
+  let buf;
+  if (Buffer.isBuffer(message.data)) {
+    if (message.data.length > MAX_COMPRESSED_BYTES) return "";
+    buf = message.data;
+  } else if (typeof message.data === "string") {
+    if (message.data.length > MAX_COMPRESSED_BYTES * 1.4) return ""; // base64 overhead ~1.33×
+    // Already base64-encoded (e.g. from bag playback)
+    return `data:${mime};base64,${message.data}`;
+  } else if (Array.isArray(message.data)) {
+    if (message.data.length > MAX_COMPRESSED_BYTES) return "";
+    // rosbridge sends CompressedImage.data as a plain number[] byte array
+    buf = Buffer.from(message.data);
+  } else {
+    return "";
+  }
+
+  return `data:${mime};base64,${buf.toString("base64")}`;
 }
+
+const MAX_IMAGE_DIMENSION = 4096; // guard against malformed/malicious oversized frames
 
 export function rawImageToSource(message) {
   const data = message?.data;
@@ -52,7 +72,20 @@ export function rawImageToSource(message) {
     return "";
   }
 
-  const source = Buffer.isBuffer(data) ? data : Buffer.from(data);
+  if (width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
+    return "";
+  }
+
+  let source;
+  if (Buffer.isBuffer(data)) {
+    source = data;
+  } else if (Array.isArray(data)) {
+    source = Buffer.from(data);
+  } else if (typeof data === "string") {
+    source = Buffer.from(data, "base64");
+  } else {
+    return "";
+  }
   const png = new PNG({ width, height });
   const channels = encoding.includes("rgba") || encoding.includes("bgra") ? 4 : encoding.includes("mono") ? 1 : 3;
   const rowStep = Number(message.step || width * channels);

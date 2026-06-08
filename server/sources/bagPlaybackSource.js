@@ -95,13 +95,16 @@ function readExportFile(filePath = BAG_EXPORT_PATH) {
     return { absolutePath, frames: JSON.parse(raw) };
   }
 
-  return {
-    absolutePath,
-    frames: raw
-      .split(/\r?\n/)
-      .filter(Boolean)
-      .map((line) => JSON.parse(line)),
-  };
+  const frames = [];
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try {
+      frames.push(JSON.parse(line));
+    } catch {
+      // Skip malformed lines rather than crashing the whole playback
+    }
+  }
+  return { absolutePath, frames };
 }
 
 function summarizeTopics(frames) {

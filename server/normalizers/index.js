@@ -184,12 +184,12 @@ function normalizeFrameLegacy({ message, type, topic, time, source }) {
     };
   }
 
+  // Truncate unknown bag-frames to avoid sending large raw payloads to the browser
   return {
     type: "bag-frame",
     source,
     topic,
     time,
     messageType: type || "unknown",
-    payload: message,
   };
 }

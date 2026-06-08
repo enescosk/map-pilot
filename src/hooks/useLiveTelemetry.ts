@@ -8,8 +8,11 @@ type UseLiveTelemetryArgs = {
   onOpen?: () => void;
 };
 
+export type WsStatus = "connecting" | "open" | "closed" | "error";
+
 export function useLiveTelemetry({ url, onMessage, onOpen }: UseLiveTelemetryArgs) {
   const [connected, setConnected] = useState(false);
+  const [wsStatus, setWsStatus] = useState<WsStatus>("closed");
   const clientRef = useRef<ReturnType<typeof createLiveTelemetryClient> | undefined>(undefined);
   const onMessageRef = useRef(onMessage);
   const onOpenRef = useRef(onOpen);
@@ -24,7 +27,10 @@ export function useLiveTelemetry({ url, onMessage, onOpen }: UseLiveTelemetryArg
       url,
       onMessage: (message) => onMessageRef.current(message),
       onOpen: () => onOpenRef.current?.(),
-      onStatus: (status) => setConnected(status === "open"),
+      onStatus: (status) => {
+        setWsStatus(status);
+        setConnected(status === "open");
+      },
     });
     clientRef.current = client;
     client.connect();
@@ -41,6 +47,7 @@ export function useLiveTelemetry({ url, onMessage, onOpen }: UseLiveTelemetryArg
 
   return {
     connected,
+    wsStatus,
     sendMessage,
     connect: () => clientRef.current?.connect(),
     disconnect: () => clientRef.current?.disconnect(),

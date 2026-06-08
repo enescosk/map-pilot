@@ -1,7 +1,9 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import ControlPanel from "./components/ControlPanel";
+import ConnectionPanel from "./components/ConnectionPanel";
 import DecisionLogPanel from "./components/DecisionLogPanel";
 import { VehicleControlPanel } from "./components/VehicleControlPanel";
 import TopicHealthStrip from "./components/TopicHealthStrip";
@@ -1262,6 +1264,7 @@ function TopicPanel({ topics, latest }: { topics: BagTopicSummary[]; latest?: La
 function App() {
   const [mode, setMode] = useState<WorkspaceMode>("perception");
   const [backendSource, setBackendSource] = useState("none");
+  const [backendError, setBackendError] = useState<string | null>(null);
   const [lidarReadings, setLidarReadings] = useState<LidarReading[]>([]);
   const [pointClouds, setPointClouds] = useState<Record<string, LidarCloudState>>({});
   const [activePointCloudTopic, setActivePointCloudTopic] = useState<string>("");
@@ -1279,6 +1282,7 @@ function App() {
   const [bagFiles, setBagFiles] = useState<BagFileOption[]>([]);
   const [selectedBagPath, setSelectedBagPath] = useState("");
   const pointCloudsRef = useRef<Record<string, LidarCloudState>>({});
+  const emergencyStopRef = useRef<(() => void) | null>(null);
   const { topicHealth, handleTopicHealthMessage } = useTopicHealth();
   const { camera, resetCamera, handleCameraFrame, handleCameraStream } = useCameraFeed();
   const {
@@ -1293,6 +1297,19 @@ function App() {
   useEffect(() => {
     pointCloudsRef.current = pointClouds;
   }, [pointClouds]);
+
+  // Global E-STOP: Space tuşu — sadece control modunda ve input alanı odakta değilken
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.code !== "Space") return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      e.preventDefault();
+      emergencyStopRef.current?.();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   const handlePointCloudFlush = useCallback((pending: PendingPointCloudPacket[]) => {
     setPointClouds((prev) => {
@@ -1347,6 +1364,11 @@ function App() {
   }, [clearPointCloudBuffer, resetCamera, resetTelemetry]);
 
   const handleLiveMessage = useCallback((packet: LiveMessage) => {
+        if (packet.type === "backend-error") {
+          setBackendError(packet.message || "Bilinmeyen hata");
+          return;
+        }
+
         if (packet.type === "bag-list") {
           const files = Array.isArray(packet.files) ? packet.files : [];
           setBagFiles(files);
@@ -1356,6 +1378,11 @@ function App() {
         if (packet.type === "reset-playback") {
           resetPlaybackState();
           setSelectedBagPath(packet.path || "");
+        }
+
+        if (packet.type === "source-changed") {
+          setBackendSource(packet.source || "unknown");
+          resetPlaybackState();
         }
 
         if (packet.type === "status") {
@@ -1496,7 +1523,7 @@ function App() {
     resetPlaybackState,
   ]);
 
-  const { connected: backendConnected, sendMessage } = useLiveTelemetry({
+  const { connected: backendConnected, wsStatus, sendMessage } = useLiveTelemetry({
     url: WS_URL,
     onMessage: handleLiveMessage,
   });
@@ -1523,6 +1550,10 @@ function App() {
     if (path && sendMessage({ type: "load-bag", path })) {
       setSelectedBagPath(path);
     }
+  }
+
+  function connectSource(source: "vehicle-ros" | "mqtt" | "bag", rosbridgeUrl: string, mqttUrl: string) {
+    sendMessage({ type: "connect-source", source, rosbridgeUrl, mqttUrl });
   }
 
   const {
@@ -1569,8 +1600,12 @@ function App() {
           <button type="button" className={mode === "debug" ? "active" : ""} onClick={() => setMode("debug")}>Triage & Debug</button>
         </div>
         <div className="top-actions">
-          <span className={backendConnected ? "status-pill good" : "status-pill bad"}>
-            {backendConnected ? "Backend online" : "Backend offline"}
+          <span className={
+            backendConnected ? "status-pill good" :
+            wsStatus === "connecting" ? "status-pill warn" : "status-pill bad"
+          }>
+            {backendConnected ? "Backend online" :
+             wsStatus === "connecting" ? "Bağlanıyor…" : "Backend offline"}
           </span>
           <span className={isLiveSource ? "status-pill good" : "status-pill muted"} title={sourceMode.waiting}>
             {sourceMode.kind}: {sourceMode.label}
@@ -1581,11 +1616,16 @@ function App() {
           <span className={bagStatus.playing ? "status-pill good" : "status-pill muted"}>
             {bagStatus.playing ? "Playing" : "Paused"}
           </span>
-          <button type="button" onClick={() => sendPlaybackCommand("start-lidar")}>Play</button>
-          <button type="button" onClick={() => sendPlaybackCommand("stop-lidar")}>Pause</button>
         </div>
       </header>
       <TopicHealthStrip health={topicHealth} sourceLabel={sourceMode.label} modeKind={sourceMode.kind} waitingMessage={sourceMode.waiting} />
+
+      {backendError && (
+        <div className="backend-error-banner" role="alert">
+          <span>⚠ Backend hatası: {backendError}</span>
+          <button type="button" onClick={() => setBackendError(null)}>✕</button>
+        </div>
+      )}
 
       <section className={`inspector-grid mode-${mode}`}>
         <aside className="hud-left">
@@ -1607,6 +1647,12 @@ function App() {
         </section>
 
         <aside className="hud-right">
+          <ConnectionPanel
+            onConnect={connectSource}
+            currentSource={backendSource}
+            connected={backendConnected}
+            backendError={backendError}
+          />
           <ControlPanel
             isMapping={false}
             lidarConnected={bagStatus.playing}
@@ -1616,7 +1662,10 @@ function App() {
             onStartLidar={() => sendPlaybackCommand("start-lidar")}
             onStopLidar={() => sendPlaybackCommand("stop-lidar")}
           />
-          <VehicleControlPanel sendMessage={sendMessage} />
+          <VehicleControlPanel
+            sendMessage={sendMessage}
+            onEmergencyStopReady={(fn) => { emergencyStopRef.current = fn; }}
+          />
           <div className="telemetry-charts">
             <VehicleCockpit telemetry={telemetry} time={latestFrame?.time} />
             <SparkChart
@@ -1630,58 +1679,16 @@ function App() {
         </aside>
       </section>
 
-      <footer className="playback-bar">
-        <span>{isLiveSource ? "Live vehicle stream" : `${formatDuration(currentSeconds)} / ${formatDuration(durationSeconds)}`}</span>
-        <div className="playback-controls" aria-label="Playback controls">
-          <button type="button" onClick={() => seekPlaybackBySeconds(-10)} disabled={isLiveSource || durationSeconds <= 0}>
-            -10s
-          </button>
-          <button
-            type="button"
-            onClick={() => sendPlaybackCommand(bagStatus.playing ? "stop-lidar" : "start-lidar")}
-            disabled={!backendConnected || isLiveSource}
-          >
-            {isLiveSource ? "Live" : bagStatus.playing ? "Pause" : "Play"}
-          </button>
-          <button type="button" onClick={() => seekPlaybackBySeconds(10)} disabled={isLiveSource || durationSeconds <= 0}>
-            +10s
-          </button>
-        </div>
-        <div className="timeline-wrapper">
-          <input
-            aria-label="Playback position"
-            className="timeline-control"
-            disabled={isLiveSource}
-            max="1000"
-            min="0"
-            type="range"
-            value={Math.round(playbackRatio * 1000)}
-            onInput={(event) => previewSeek(Number(event.currentTarget.value) / 1000)}
-            onBlur={(event) => commitPreviewSeek(Number(event.currentTarget.value) / 1000)}
-            onKeyUp={(event) => commitPreviewSeek(Number(event.currentTarget.value) / 1000)}
-            onPointerUp={(event) => commitPreviewSeek(Number(event.currentTarget.value) / 1000)}
-          />
-          {!isLiveSource && durationSeconds > 0 && cockpitEvents.map((event) => {
-            const ratio = (event.timestamp - timeStringToSeconds(bagStatus.startTime)) / durationSeconds;
-            if (ratio < 0 || ratio > 1) return null;
-            return (
-              <span
-                key={event.id}
-                className={`event-marker severity-${event.severity}`}
-                style={{ left: `${ratio * 100}%` }}
-                title={`${event.title}: ${event.description}`}
-                onClick={() => seekPlayback(ratio)}
-              />
-            );
-          })}
-        </div>
-        <div className="frame-count" aria-label="Playback frame count">
-          <span>Frames</span>
-          <strong>{frameLabel.replace("Frame ", "")}</strong>
-        </div>
-      </footer>
     </main>
   );
 }
 
-export default App;
+function AppWithBoundary() {
+  return (
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  );
+}
+
+export default AppWithBoundary;

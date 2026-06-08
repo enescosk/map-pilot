@@ -56,7 +56,8 @@ export function createControlPublisher({
       return { ok: false, reason: `topic ${topic} not allowed` };
     }
     const expected = ALLOWED[topic];
-    if (msgType && msgType !== expected) {
+    const resolvedType = msgType || expected;
+    if (resolvedType !== expected) {
       return { ok: false, reason: `msgType ${msgType} != expected ${expected}` };
     }
 

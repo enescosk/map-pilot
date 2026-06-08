@@ -4,7 +4,8 @@ import { laserScanToReadings } from "../normalizers/laserScan.js";
 export const ROSBRIDGE_URL = process.env.ROSBRIDGE_URL || "ws://localhost:9090";
 export const ROS_SCAN_TOPIC = process.env.ROS_SCAN_TOPIC || "/scan";
 
-export function createRosBridgeLidarSource({ emit }) {
+export function createRosBridgeLidarSource({ emit, url } = {}) {
+  const rosbridgeUrl = url || process.env.ROSBRIDGE_URL || ROSBRIDGE_URL;
   let rosSocket;
   let subscribed = false;
   let connected = false;
@@ -42,7 +43,7 @@ export function createRosBridgeLidarSource({ emit }) {
     subscribed = true;
     connected = true;
     emitStatus();
-    console.log(`Subscribed to ROS topic ${ROS_SCAN_TOPIC} through ${ROSBRIDGE_URL}`);
+    console.log(`Subscribed to ROS topic ${ROS_SCAN_TOPIC} through ${rosbridgeUrl}`);
   }
 
   function unsubscribeFromScan() {
@@ -67,7 +68,7 @@ export function createRosBridgeLidarSource({ emit }) {
       return;
     }
 
-    rosSocket = new WebSocket(ROSBRIDGE_URL);
+    rosSocket = new WebSocket(rosbridgeUrl);
 
     rosSocket.on("open", () => {
       subscribeToScan();

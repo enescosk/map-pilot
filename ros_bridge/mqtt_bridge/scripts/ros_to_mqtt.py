@@ -10,12 +10,13 @@ one bag (vehicle-only or sensor-only) is playing.
 """
 import importlib
 import json
+import os
 import rospy
 import paho.mqtt.client as mqtt
 from rosbridge_library.internal.message_conversion import extract_values
 
-MQTT_HOST = "localhost"
-MQTT_PORT = 1883
+MQTT_HOST = os.environ.get("MQTT_HOST", "localhost")
+MQTT_PORT = int(os.environ.get("MQTT_PORT", 1883))
 TOPIC_ROOT = "map-pilot"
 
 DEFAULT_TOPICS = [
