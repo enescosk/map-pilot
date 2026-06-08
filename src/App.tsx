@@ -5,7 +5,6 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import ControlPanel from "./components/ControlPanel";
 import ConnectionPanel from "./components/ConnectionPanel";
 import DecisionLogPanel from "./components/DecisionLogPanel";
-import { VehicleControlPanel } from "./components/VehicleControlPanel";
 import TopicHealthStrip from "./components/TopicHealthStrip";
 import { useBagPlayback } from "./hooks/useBagPlayback";
 import { useCameraFeed } from "./hooks/useCameraFeed";
@@ -1300,7 +1299,6 @@ function App() {
   const [bagFiles, setBagFiles] = useState<BagFileOption[]>([]);
   const [selectedBagPath, setSelectedBagPath] = useState("");
   const pointCloudsRef = useRef<Record<string, LidarCloudState>>({});
-  const emergencyStopRef = useRef<(() => void) | null>(null);
   const { topicHealth, handleTopicHealthMessage } = useTopicHealth();
   const { camera, resetCamera, handleCameraFrame, handleCameraStream } = useCameraFeed();
   const {
@@ -1315,19 +1313,6 @@ function App() {
   useEffect(() => {
     pointCloudsRef.current = pointClouds;
   }, [pointClouds]);
-
-  // Global E-STOP: Space tuşu — sadece control modunda ve input alanı odakta değilken
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.code !== "Space") return;
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      e.preventDefault();
-      emergencyStopRef.current?.();
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
 
   // Tracks whether ANY workspace currently shows the map view.
   // When false, mergeLidarMap is skipped (saves ~30-50ms/flush at capacity).
@@ -1635,10 +1620,6 @@ function App() {
             currentSource={backendSource}
             connected={backendConnected}
             backendError={backendError}
-          />
-          <VehicleControlPanel
-            sendMessage={sendMessage}
-            onEmergencyStopReady={(fn) => { emergencyStopRef.current = fn; }}
           />
           <ControlPanel
             isMapping={false}
