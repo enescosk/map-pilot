@@ -344,23 +344,35 @@ function CameraViewer({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [legacySrc, setLegacySrc] = useState(camera.frameSrc && camera.frameSrc !== "binary" ? camera.frameSrc : "");
 
-  // Binary path: draw ImageBitmap directly to canvas via subscription (no React render per frame).
-  useEffect(() => {
-    if (!subscribeBitmap || !canvasRef.current) return;
-    const paint = (bmp: ImageBitmap) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      if (canvas.width !== bmp.width) canvas.width = bmp.width;
-      if (canvas.height !== bmp.height) canvas.height = bmp.height;
-      const ctx = canvas.getContext("2d", { alpha: false });
-      ctx?.drawImage(bmp, 0, 0);
-    };
-    // Paint the current bitmap immediately if one exists (e.g. on mount mid-stream).
-    if (bitmapRef?.current) paint(bitmapRef.current);
-    return subscribeBitmap(paint);
-  }, [subscribeBitmap, bitmapRef]);
+  const isBinary = camera.frameSrc === "binary";
+  const showStream = !!camera.streamUrl;
+  const showLegacy = !isBinary && !showStream && !!legacySrc;
 
-  // Legacy JSON-data-URL path (fallback for sources that don't go through the binary route).
+  // Binary path: draw ImageBitmap directly to canvas via subscription.
+  // Depends on `isBinary` so the subscription is set up AFTER the canvas mounts.
+  useEffect(() => {
+    if (!subscribeBitmap || !isBinary) return;
+    // Tiny delay to let React commit the <canvas> element to the DOM.
+    let unsubscribe: (() => void) | undefined;
+    const setupId = window.setTimeout(() => {
+      const paint = (bmp: ImageBitmap) => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        if (canvas.width !== bmp.width) canvas.width = bmp.width;
+        if (canvas.height !== bmp.height) canvas.height = bmp.height;
+        const ctx = canvas.getContext("2d", { alpha: false });
+        ctx?.drawImage(bmp, 0, 0);
+      };
+      if (bitmapRef?.current) paint(bitmapRef.current);
+      unsubscribe = subscribeBitmap(paint);
+    }, 0);
+    return () => {
+      window.clearTimeout(setupId);
+      unsubscribe?.();
+    };
+  }, [subscribeBitmap, bitmapRef, isBinary]);
+
+  // Legacy JSON-data-URL path (fallback for sources that don't go through binary).
   useEffect(() => {
     if (camera.streamUrl) return;
     const src = camera.frameSrc;
@@ -371,10 +383,6 @@ function CameraViewer({
     img.src = src;
     return () => { cancelled = true; };
   }, [camera.frameSrc, camera.streamUrl, legacySrc]);
-
-  const isBinary = camera.frameSrc === "binary";
-  const showStream = !!camera.streamUrl;
-  const showLegacy = !isBinary && !showStream && !!legacySrc;
 
   return (
     <section className="workspace-panel camera-workspace">
