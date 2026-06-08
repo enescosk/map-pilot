@@ -5,36 +5,44 @@ type ClientStatus = "connecting" | "open" | "closed" | "error";
 type LiveTelemetryClientOptions = {
   url: string;
   onMessage: (message: LiveMessage) => void;
+  onWorkerMessage?: (ev: MessageEvent) => void;
   onStatus?: (status: ClientStatus) => void;
   onOpen?: () => void;
   reconnectBaseMs?: number;
   reconnectMaxMs?: number;
+  /** Override for testing — skip Web Worker creation */
+  _noWorker?: boolean;
 };
-
-function parseLiveMessage(raw: string): LiveMessage | undefined {
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") {
-      return parsed as LiveMessage;
-    }
-  } catch (error) {
-    console.error("Invalid backend message:", error);
-  }
-  return undefined;
-}
 
 export function createLiveTelemetryClient({
   url,
   onMessage,
+  onWorkerMessage,
   onStatus,
   onOpen,
   reconnectBaseMs = 900,
   reconnectMaxMs = 5000,
+  _noWorker = false,
 }: LiveTelemetryClientOptions) {
   let socket: WebSocket | undefined;
   let reconnectTimer: number | undefined;
   let manuallyClosed = false;
   let reconnectAttempt = 0;
+
+  // Spin up a Web Worker for JSON parsing and lidar processing off main thread.
+  // _noWorker=true is used in tests where Worker is not available.
+  let worker: Worker | null = null;
+  if (!_noWorker) {
+    worker = new Worker(new URL("../workers/frameWorker.ts", import.meta.url), { type: "module" });
+    worker.onmessage = (ev: MessageEvent) => {
+      const { type } = ev.data as { type: string };
+      if (type === "message") {
+        onMessage(ev.data.msg as LiveMessage);
+      } else if (onWorkerMessage) {
+        onWorkerMessage(ev);
+      }
+    };
+  }
 
   function clearReconnect() {
     if (reconnectTimer) {
@@ -44,10 +52,7 @@ export function createLiveTelemetryClient({
   }
 
   function scheduleReconnect() {
-    if (manuallyClosed || reconnectTimer) {
-      return;
-    }
-
+    if (manuallyClosed || reconnectTimer) return;
     const delay = Math.min(reconnectMaxMs, reconnectBaseMs * 2 ** reconnectAttempt);
     reconnectAttempt = Math.min(reconnectAttempt + 1, 6);
     reconnectTimer = window.setTimeout(() => {
@@ -57,10 +62,7 @@ export function createLiveTelemetryClient({
   }
 
   function connect() {
-    if (socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) {
-      return;
-    }
-
+    if (socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) return;
     manuallyClosed = false;
     onStatus?.("connecting");
     socket = new WebSocket(url);
@@ -72,9 +74,15 @@ export function createLiveTelemetryClient({
     });
 
     socket.addEventListener("message", (event) => {
-      const message = parseLiveMessage(String(event.data));
-      if (message) {
-        onMessage(message);
+      if (worker) {
+        // Send raw string to worker — zero JSON.parse on main thread
+        worker.postMessage({ type: "parse", payload: String(event.data) });
+      } else {
+        // Fallback: parse on main thread (test/no-worker mode)
+        try {
+          const msg = JSON.parse(String(event.data)) as LiveMessage;
+          if (msg && typeof msg === "object") onMessage(msg);
+        } catch { /* ignore malformed */ }
       }
     });
 
@@ -96,6 +104,7 @@ export function createLiveTelemetryClient({
     socket?.close();
     socket = undefined;
     onStatus?.("closed");
+    worker?.postMessage({ type: "reset" });
   }
 
   function send(message: unknown) {
@@ -106,10 +115,15 @@ export function createLiveTelemetryClient({
     return false;
   }
 
+  function terminateWorker() {
+    worker?.terminate();
+  }
+
   return {
     connect,
     disconnect,
     send,
+    terminateWorker,
     getReadyState: () => socket?.readyState,
   };
 }

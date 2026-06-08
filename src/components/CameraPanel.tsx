@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type { CameraStatus } from "../types/liveMessages";
 
 type CameraPanelProps = {
@@ -5,6 +6,49 @@ type CameraPanelProps = {
 };
 
 function CameraPanel({ camera }: CameraPanelProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const prevSrcRef = useRef<string>("");
+
+  useEffect(() => {
+    const src = camera.frameSrc;
+    if (!src || src === prevSrcRef.current) return;
+    prevSrcRef.current = src;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // Use createImageBitmap for off-main-thread decode where supported
+    if (typeof createImageBitmap === "function" && src.startsWith("data:")) {
+      fetch(src)
+        .then((r) => r.blob())
+        .then((blob) => createImageBitmap(blob))
+        .then((bmp) => {
+          canvas.width = bmp.width;
+          canvas.height = bmp.height;
+          canvas.getContext("2d")?.drawImage(bmp, 0, 0);
+          bmp.close();
+        })
+        .catch(() => {
+          // Fallback: direct img draw
+          const img = new Image();
+          img.onload = () => {
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            canvas.getContext("2d")?.drawImage(img, 0, 0);
+          };
+          img.src = src;
+        });
+    } else {
+      const img = new Image();
+      img.onload = () => {
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        canvas.getContext("2d")?.drawImage(img, 0, 0);
+      };
+      img.src = src;
+    }
+  }, [camera.frameSrc]);
+
   return (
     <article className="panel camera-panel">
       <div className="panel-heading split-heading">
@@ -19,7 +63,7 @@ function CameraPanel({ camera }: CameraPanelProps) {
 
       <div className={camera.isActive ? "camera-feed active" : "camera-feed"}>
         {camera.frameSrc ? (
-          <img src={camera.frameSrc} alt={`${camera.name} frame`} />
+          <canvas ref={canvasRef} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
         ) : (
           <>
             <div className="camera-crosshair horizontal" />

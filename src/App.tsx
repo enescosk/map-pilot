@@ -16,8 +16,6 @@ import { useTopicHealth } from "./hooks/useTopicHealth";
 import type { BagFileOption, BagStatus, BagTopicSummary, CameraFrameMessage, CameraStatus, CameraStreamMessage, LatestFrame, LidarReading, LiveMessage, Point3D, TelemetryMessage } from "./types/liveMessages";
 import type { GpsFix, SeriesPoint, TelemetryState, Vector3 } from "./types/telemetry";
 import {
-  appendLidarHistory,
-  buildPointCloudFromScan,
   chooseBestPointCloudTopic,
   denoisePointCloud,
   isMeaningfulDisplayPoint,
@@ -29,7 +27,6 @@ import {
   scanReadingsToPoints,
   selectRenderablePoints,
   selectStoredLivePoints,
-  type LaserScanLike,
   type LidarCloudState,
 } from "./utils/lidarProcessing";
 import { formatBoolean, formatDuration, formatFileSize, formatGear, formatNumber, vectorMagnitude } from "./utils/telemetryFormatters";
@@ -1092,17 +1089,17 @@ function LidarWorkspace({
   const [showDebug, setShowDebug] = useState(false);
   const availableTopics = Object.keys(pointClouds).sort();
   const bestTopic = useMemo(() => chooseBestPointCloudTopic(pointClouds), [pointClouds]);
+  // During the first 4 s, keep updating to the best topic so we settle on the
+  // highest-priority / most-points source once all topics have sent their first frames.
+  // After that window, only auto-select when nothing is active (manual picks are respected).
+  const lidarStartRef = useRef<number>(Date.now());
   useEffect(() => {
-    if (!bestTopic) {
-      return;
-    }
-
-    const activePoints = pointClouds[activeTopic]?.points.length || 0;
-    const bestPoints = pointClouds[bestTopic]?.points.length || 0;
-    if (!activeTopic || activeTopic.toLowerCase().includes("scan") || bestPoints > activePoints * 2) {
+    if (!bestTopic) return;
+    const elapsed = Date.now() - lidarStartRef.current;
+    if (elapsed < 4000 || !activeTopic) {
       setActiveTopic(bestTopic);
     }
-  }, [activeTopic, bestTopic, pointClouds, setActiveTopic]);
+  }, [activeTopic, bestTopic, setActiveTopic]);
   const activeData = pointClouds[activeTopic] || { points: [], mapPoints: [], frameId: "", resolvedFrame: "" };
   const points = cloudView === "map" && activeData.mapPoints.length > 0
     ? activeData.mapPoints
@@ -1397,64 +1394,7 @@ function App() {
           }
         }
 
-        if (packet.type === "scan" && (Array.isArray(packet.readings) || packet.scan)) {
-          const t = packet.topic || "scan";
-          // Two supported input shapes: pre-projected readings, or a raw LaserScan object.
-          const scanPoints = Array.isArray(packet.readings)
-            ? scanReadingsToPoints(packet.readings)
-            : buildPointCloudFromScan(packet.scan as LaserScanLike);
-          if (Array.isArray(packet.readings)) {
-            setLidarReadings(packet.readings);
-          }
-          setPointClouds((prev) => ({
-            ...prev,
-            [t]: {
-              points: appendLidarHistory(prev[t]?.points || [], scanPoints),
-              mapPoints: prev[t]?.mapPoints || [],
-              frameId: packet.frameId || "laser"
-            }
-          }));
-          setActivePointCloudTopic((prev) => prev || t);
-          setLatestFrame({
-            topic: t,
-            time: packet.time,
-            messageType: "LaserScan",
-            preview: `${packet.readings?.length || scanPoints.length} projected scan points`,
-          });
-        }
-
-        if (packet.type === "point-cloud") {
-          const t = packet.topic || "point-cloud";
-          if (Array.isArray(packet.readings)) {
-            setLidarReadings(packet.readings);
-          }
-          if (Array.isArray(packet.points)) {
-            const packetPoints = packet.points;
-            enqueuePointCloud({
-              topic: t,
-              points: packetPoints,
-              readings: packet.readings,
-              frameId: packet.frameId || "",
-              resolvedFrame: packet.resolvedFrame || "",
-              time: packet.time,
-            });
-            setActivePointCloudTopic((prev) => {
-              if (!prev || prev.toLowerCase().includes("scan")) {
-                return t;
-              }
-
-              const currentPoints = pointCloudsRef.current[prev]?.points.length || 0;
-              const incomingPoints = packetPoints.length;
-              return incomingPoints > currentPoints * 2 ? t : prev;
-            });
-          }
-          setLatestFrame({
-            topic: t,
-            time: packet.time,
-            messageType: "PointCloud2",
-            preview: `${packet.points?.length || 0} sampled 3D points`,
-          });
-        }
+        // scan and point-cloud are handled by the Web Worker (see handleWorkerMessage)
 
         if (packet.type === "camera-frame" && typeof packet.src === "string") {
           handleCameraFrame(packet as CameraFrameMessage);
@@ -1515,7 +1455,6 @@ function App() {
           handleTopicHealthMessage(packet);
         }
   }, [
-    enqueuePointCloud,
     handleCameraFrame,
     handleCameraStream,
     handleTelemetryMessage,
@@ -1523,9 +1462,40 @@ function App() {
     resetPlaybackState,
   ]);
 
+  // Worker delivers pre-processed scan-ready / cloud-ready results (lidar work is off main thread)
+  const handleWorkerMessage = useCallback((ev: MessageEvent) => {
+    const { type } = ev.data as { type: string };
+
+    if (type === "scan-ready") {
+      const { topic, renderable, readingsLength, time, frameId } = ev.data as {
+        topic: string; renderable: Point3D[]; readingsLength: number; time: string; frameId: string;
+      };
+      setPointClouds((prev) => ({
+        ...prev,
+        [topic]: {
+          points: renderable,
+          mapPoints: prev[topic]?.mapPoints || [],
+          frameId: frameId || "laser",
+        },
+      }));
+      setActivePointCloudTopic((prev) => prev || topic);
+      setLatestFrame({ topic, time, messageType: "LaserScan", preview: `${readingsLength} projected scan points` });
+    }
+
+    if (type === "cloud-ready") {
+      const { topic, renderable, time, frameId, resolvedFrame } = ev.data as {
+        topic: string; renderable: Point3D[]; time: string; frameId: string; resolvedFrame: string;
+      };
+      enqueuePointCloud({ topic, points: renderable, frameId, resolvedFrame, time });
+      setActivePointCloudTopic((prev) => prev || topic);
+      setLatestFrame({ topic, time, messageType: "PointCloud2", preview: `${renderable.length} sampled 3D points` });
+    }
+  }, [enqueuePointCloud]);
+
   const { connected: backendConnected, wsStatus, sendMessage } = useLiveTelemetry({
     url: WS_URL,
     onMessage: handleLiveMessage,
+    onWorkerMessage: handleWorkerMessage,
   });
 
   useEffect(() => {

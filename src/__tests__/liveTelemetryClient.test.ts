@@ -79,6 +79,7 @@ function makeClient(overrides: Record<string, unknown> = {}) {
     onOpen,
     reconnectBaseMs: 100,
     reconnectMaxMs: 1000,
+    _noWorker: true,
     ...overrides,
   });
   return { client, onMessage, onStatus, onOpen };
