@@ -73,12 +73,19 @@ export function createLiveTelemetryClient({
       onOpen?.();
     });
 
+    // Binary frames carry point-cloud data; text frames are JSON envelopes.
+    socket.binaryType = "arraybuffer";
     socket.addEventListener("message", (event) => {
+      if (event.data instanceof ArrayBuffer) {
+        // Binary point-cloud frame — pass ArrayBuffer to worker by transfer (zero copy).
+        if (worker) {
+          worker.postMessage({ type: "parse-binary", payload: event.data }, [event.data]);
+        }
+        return;
+      }
       if (worker) {
-        // Send raw string to worker — zero JSON.parse on main thread
         worker.postMessage({ type: "parse", payload: String(event.data) });
       } else {
-        // Fallback: parse on main thread (test/no-worker mode)
         try {
           const msg = JSON.parse(String(event.data)) as LiveMessage;
           if (msg && typeof msg === "object") onMessage(msg);

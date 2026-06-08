@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import type { TopicHealthState } from "../types/telemetry";
 
 type TopicHealthStripProps = {
@@ -72,4 +72,4 @@ function TopicHealthStrip({ health, sourceLabel, modeKind, waitingMessage }: Top
   );
 }
 
-export default TopicHealthStrip;
+export default memo(TopicHealthStrip);

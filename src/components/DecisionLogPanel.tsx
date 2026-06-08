@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 type DecisionLogEntry = {
   id: string;
   time: string;
@@ -32,4 +34,4 @@ function DecisionLogPanel({ entries }: DecisionLogPanelProps) {
   );
 }
 
-export default DecisionLogPanel;
+export default memo(DecisionLogPanel);

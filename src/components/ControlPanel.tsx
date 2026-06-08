@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 type ControlPanelProps = {
   isMapping: boolean;
   lidarConnected: boolean;
@@ -56,4 +58,4 @@ function ControlPanel({
   );
 }
 
-export default ControlPanel;
+export default memo(ControlPanel);

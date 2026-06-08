@@ -98,14 +98,48 @@ function emitFromSource(envelope) {
 
 const MAX_BUFFERED_BYTES = 512 * 1024; // 512 KB — drop slow clients rather than OOM
 
+/**
+ * Pack a point-cloud envelope as a binary message:
+ *   [4 bytes header length LE] [header JSON utf8] [payload: Float32 xyzi interleaved]
+ *
+ * This avoids ~3.6 MB/cloud of JSON serialization cost (60k points × ~60 chars each)
+ * and lets the worker wrap the payload as a typed array with zero copy.
+ */
+function packPointCloudBinary(envelope) {
+  const points = envelope.points || [];
+  const n = points.length;
+  const header = {
+    type: "point-cloud-binary",
+    topic: envelope.topic || "",
+    time: envelope.time || "",
+    source: envelope.source || "",
+    frameId: envelope.frameId || "",
+    resolvedFrame: envelope.resolvedFrame || "",
+    n,
+  };
+  const headerBuf = Buffer.from(JSON.stringify(header), "utf8");
+  const headerLen = Buffer.alloc(4);
+  headerLen.writeUInt32LE(headerBuf.length, 0);
+  const xyzi = Buffer.alloc(n * 16); // 4 floats × 4 bytes
+  for (let i = 0; i < n; i++) {
+    const p = points[i];
+    const off = i * 16;
+    xyzi.writeFloatLE(Number(p.x) || 0, off);
+    xyzi.writeFloatLE(Number(p.y) || 0, off + 4);
+    xyzi.writeFloatLE(Number(p.z) || 0, off + 8);
+    xyzi.writeFloatLE(Number(p.intensity) || 0, off + 12);
+  }
+  return Buffer.concat([headerLen, headerBuf, xyzi]);
+}
+
 function broadcast(envelope) {
-  const payload = JSON.stringify(envelope);
+  // Hot path: point-cloud → binary frame. Everything else → JSON.
+  const isBinaryEligible = envelope?.type === "point-cloud" && Array.isArray(envelope.points) && envelope.points.length > 0;
+  const payload = isBinaryEligible ? packPointCloudBinary(envelope) : JSON.stringify(envelope);
+
   for (const client of wss.clients) {
     if (client.readyState !== 1) continue;
-    if (client.bufferedAmount > MAX_BUFFERED_BYTES) {
-      // Client can't keep up — skip this frame to avoid queuing unboundedly
-      continue;
-    }
+    if (client.bufferedAmount > MAX_BUFFERED_BYTES) continue; // drop slow clients
     client.send(payload);
   }
 }

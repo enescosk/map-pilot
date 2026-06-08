@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 
 type SourceMode = "vehicle-ros" | "mqtt" | "bag";
 
@@ -17,7 +17,7 @@ function save(key: string, value: string) {
   try { localStorage.setItem(key, value); } catch { /* ignore */ }
 }
 
-export default function ConnectionPanel({ onConnect, currentSource, connected, backendError }: Props) {
+function ConnectionPanel({ onConnect, currentSource, connected, backendError }: Props) {
   const [source, setSource] = useState<SourceMode>(() => stored("mp_source", "vehicle-ros") as SourceMode);
   const [vehicleIp, setVehicleIp] = useState(() => stored("mp_vehicle_ip", "172.22.78.35"));
   const [mqttIp, setMqttIp] = useState(() => stored("mp_mqtt_ip", "172.22.78.35"));
@@ -91,3 +91,5 @@ export default function ConnectionPanel({ onConnect, currentSource, connected, b
     </section>
   );
 }
+
+export default memo(ConnectionPanel);
