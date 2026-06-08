@@ -681,18 +681,8 @@ function createRosbagPlaybackSource({ emit, filePath }) {
             }
           }
 
-          // Bag messages arrive in time order per topic; insertion at the end is
-          // usually monotonic. Only re-sort when the new packet's time is older
-          // than the queue tail (rare — happens with multi-topic interleaving).
-          const queueTail = queue[queue.length - 1];
-          if (queueTail && timeToSeconds(packet.time) < timeToSeconds(queueTail.time)) {
-            // Out-of-order: do a single-pass insertion from the tail.
-            let i = queue.length - 1;
-            while (i > 0 && timeToSeconds(queue[i - 1].time) > timeToSeconds(packet.time)) i--;
-            queue.splice(i, 0, packet);
-          } else {
-            queue.push(packet);
-          }
+          queue.push(packet);
+          queue.sort((a, b) => timeToSeconds(a.time) - timeToSeconds(b.time));
           lastQueuedTimeByTopic.set(result.topic, resultSeconds);
           if (queue.length > MAX_PLAYBACK_QUEUE) {
             queue = queue.slice(Math.floor(MAX_PLAYBACK_QUEUE / -2));

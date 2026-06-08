@@ -45,12 +45,9 @@ export function compressedImageToSource(message) {
   if (Buffer.isBuffer(message.data)) {
     if (message.data.length > MAX_COMPRESSED_BYTES) return "";
     buf = message.data;
-  } else if (message.data instanceof Uint8Array) {
-    // rosbag library returns CompressedImage.data as Uint8Array.
-    if (message.data.length > MAX_COMPRESSED_BYTES) return "";
-    buf = Buffer.from(message.data.buffer, message.data.byteOffset, message.data.byteLength);
   } else if (typeof message.data === "string") {
     if (message.data.length > MAX_COMPRESSED_BYTES * 1.4) return ""; // base64 overhead ~1.33×
+    // Already base64-encoded (e.g. from bag playback)
     return `data:${mime};base64,${message.data}`;
   } else if (Array.isArray(message.data)) {
     if (message.data.length > MAX_COMPRESSED_BYTES) return "";
@@ -82,9 +79,6 @@ export function rawImageToSource(message) {
   let source;
   if (Buffer.isBuffer(data)) {
     source = data;
-  } else if (data instanceof Uint8Array) {
-    // rosbag library returns Image.data as Uint8Array.
-    source = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
   } else if (Array.isArray(data)) {
     source = Buffer.from(data);
   } else if (typeof data === "string") {

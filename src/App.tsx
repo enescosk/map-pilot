@@ -1,4 +1,4 @@
-import { type CSSProperties, type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -332,57 +332,30 @@ function VehicleCockpit({ telemetry, time }: { telemetry: TelemetryState; time?:
   );
 }
 
-function CameraViewer({
-  camera,
-  subscribeBitmap,
-  bitmapRef,
-}: {
-  camera: CameraStatus;
-  subscribeBitmap?: (cb: (bmp: ImageBitmap) => void) => () => void;
-  bitmapRef?: MutableRefObject<ImageBitmap | null>;
-}) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [legacySrc, setLegacySrc] = useState(camera.frameSrc && camera.frameSrc !== "binary" ? camera.frameSrc : "");
+function CameraViewer({ camera }: { camera: CameraStatus }) {
+  const [displaySrc, setDisplaySrc] = useState(camera.frameSrc || "");
+  const cameraSrc = camera.streamUrl || displaySrc;
 
-  const isBinary = camera.frameSrc === "binary";
-  const showStream = !!camera.streamUrl;
-  const showLegacy = !isBinary && !showStream && !!legacySrc;
-
-  // Binary path: draw ImageBitmap directly to canvas via subscription.
-  // Depends on `isBinary` so the subscription is set up AFTER the canvas mounts.
   useEffect(() => {
-    if (!subscribeBitmap || !isBinary) return;
-    // Tiny delay to let React commit the <canvas> element to the DOM.
-    let unsubscribe: (() => void) | undefined;
-    const setupId = window.setTimeout(() => {
-      const paint = (bmp: ImageBitmap) => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        if (canvas.width !== bmp.width) canvas.width = bmp.width;
-        if (canvas.height !== bmp.height) canvas.height = bmp.height;
-        const ctx = canvas.getContext("2d", { alpha: false });
-        ctx?.drawImage(bmp, 0, 0);
+    if (camera.streamUrl) {
+      return;
+    }
+
+    if (camera.frameSrc && camera.frameSrc !== displaySrc) {
+      let cancelled = false;
+      const image = new Image();
+      image.onload = () => {
+        if (!cancelled) {
+          setDisplaySrc(camera.frameSrc || "");
+        }
       };
-      if (bitmapRef?.current) paint(bitmapRef.current);
-      unsubscribe = subscribeBitmap(paint);
-    }, 0);
-    return () => {
-      window.clearTimeout(setupId);
-      unsubscribe?.();
-    };
-  }, [subscribeBitmap, bitmapRef, isBinary]);
+      image.src = camera.frameSrc;
 
-  // Legacy JSON-data-URL path (fallback for sources that don't go through binary).
-  useEffect(() => {
-    if (camera.streamUrl) return;
-    const src = camera.frameSrc;
-    if (!src || src === "binary" || src === legacySrc) return;
-    let cancelled = false;
-    const img = new Image();
-    img.onload = () => { if (!cancelled) setLegacySrc(src); };
-    img.src = src;
-    return () => { cancelled = true; };
-  }, [camera.frameSrc, camera.streamUrl, legacySrc]);
+      return () => {
+        cancelled = true;
+      };
+    }
+  }, [camera.frameSrc, camera.streamUrl, displaySrc]);
 
   return (
     <section className="workspace-panel camera-workspace">
@@ -391,12 +364,9 @@ function CameraViewer({
         <strong>{camera.isActive ? "Live" : "Waiting"}</strong>
       </div>
       <div className="camera-stage">
-        {isBinary && (
-          <canvas ref={canvasRef} style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
-        )}
-        {showStream && <img src={camera.streamUrl} alt="Live camera stream" />}
-        {showLegacy && <img src={legacySrc} alt="Live camera feed" />}
-        {!isBinary && !showStream && !showLegacy && (
+        {cameraSrc ? (
+          <img src={cameraSrc} alt="Live camera feed" />
+        ) : (
           <div className="empty-state">No camera frame received yet</div>
         )}
       </div>
@@ -425,21 +395,23 @@ function Lidar2D({ readings, points }: { readings: LidarReading[]; points?: Poin
   const wrapperRef = useRef<HTMLDivElement | null>(null);
 
   // Prefer the 3D cloud (projected top-down by ignoring z); fall back to polar readings.
-  // Math.sqrt(x*x+y*y) is ~3× faster than Math.hypot in V8.
   const flatPoints = useMemo(() => {
-    const src = (points && points.length > 0) ? points : scanReadingsToPoints(readings);
-    const out: Array<{ x: number; y: number; intensity: number; distance: number }> = [];
-    for (let i = 0; i < src.length; i++) {
-      const p = src[i];
-      if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
-      out.push({
-        x: p.x,
-        y: p.y,
-        intensity: Number(p.intensity || 0),
-        distance: Math.sqrt(p.x * p.x + p.y * p.y),
-      });
+    if (points && points.length > 0) {
+      return points
+        .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
+        .map((p) => ({
+          x: p.x,
+          y: p.y,
+          intensity: Number(p.intensity || 0),
+          distance: Math.hypot(p.x, p.y),
+        }));
     }
-    return out;
+    return scanReadingsToPoints(readings).map((p) => ({
+      x: p.x,
+      y: p.y,
+      intensity: Number(p.intensity || 0),
+      distance: Math.hypot(p.x, p.y),
+    }));
   }, [points, readings]);
 
   // Auto-pick a nice range bound that contains 95% of points.
@@ -1302,7 +1274,7 @@ function App() {
   const pointCloudsRef = useRef<Record<string, LidarCloudState>>({});
   const emergencyStopRef = useRef<(() => void) | null>(null);
   const { topicHealth, handleTopicHealthMessage } = useTopicHealth();
-  const { camera, resetCamera, handleCameraFrame, handleCameraBitmap, handleCameraStream, subscribeBitmap, bitmapRef } = useCameraFeed();
+  const { camera, resetCamera, handleCameraFrame, handleCameraStream } = useCameraFeed();
   const {
     telemetry,
     series,
@@ -1521,15 +1493,7 @@ function App() {
       setActivePointCloudTopic((prev) => prev || topic);
       setLatestFrame({ topic, time, messageType: "PointCloud2", preview: `${renderable.length} sampled 3D points` });
     }
-
-    if (type === "camera-bitmap-ready") {
-      const { topic, time, resolution, fps, bitmap } = ev.data as {
-        topic: string; time: string; resolution: string; fps: number; bitmap: ImageBitmap;
-      };
-      handleCameraBitmap({ topic, time, resolution, fps, bitmap });
-      setLatestFrame({ topic, time, messageType: "Camera (binary)", preview: resolution });
-    }
-  }, [enqueuePointCloud, handleCameraBitmap, setLatestFrame]);
+  }, [enqueuePointCloud]);
 
   const { connected: backendConnected, wsStatus, sendMessage } = useLiveTelemetry({
     url: WS_URL,
@@ -1638,7 +1602,7 @@ function App() {
 
       <section className={`inspector-grid mode-${mode}`}>
         <aside className="hud-left">
-          <CameraViewer camera={camera} subscribeBitmap={subscribeBitmap} bitmapRef={bitmapRef} />
+          <CameraViewer camera={camera} />
           <TopicPanel topics={bagStatus.topics} latest={latestFrame} />
         </aside>
 

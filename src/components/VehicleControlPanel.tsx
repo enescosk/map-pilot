@@ -6,7 +6,7 @@
 //   2. A 3-second deadman re-arms safe mode automatically if the user stops
 //      issuing inputs (any slider movement / button press counts).
 
-import { memo, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { currentTimeString } from "../utils/timeLabel";
 import "./VehicleControlPanel.css";
 
@@ -26,7 +26,7 @@ const STEER_MAX = 90;
 const SPEED_MAX = 60; // km/h cap for the UI
 const BRAKE_MAX = 100;
 
-function VehicleControlPanelImpl({
+export function VehicleControlPanel({
   sendMessage,
   onEmergencyStopReady,
 }: {
@@ -334,5 +334,3 @@ function VehicleControlPanelImpl({
     </section>
   );
 }
-
-export const VehicleControlPanel = memo(VehicleControlPanelImpl);

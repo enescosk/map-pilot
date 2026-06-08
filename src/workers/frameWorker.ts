@@ -134,69 +134,38 @@ self.onmessage = (ev: MessageEvent) => {
   const { type, payload } = ev.data as { type: string; payload: unknown };
 
   if (type === "parse-binary") {
-    try {
-      const buf = payload as ArrayBuffer;
-      const view = new DataView(buf);
-      const headerLen = view.getUint32(0, true);
-      const headerBytes = new Uint8Array(buf, 4, headerLen);
-      const headerObj = JSON.parse(new TextDecoder().decode(headerBytes)) as Record<string, unknown>;
-      const dataOffset = 4 + headerLen;
+    // Format: [4 bytes header length LE] [header JSON utf8] [Float32 xyzi interleaved]
+    const buf = payload as ArrayBuffer;
+    const view = new DataView(buf);
+    const headerLen = view.getUint32(0, true);
+    const headerBytes = new Uint8Array(buf, 4, headerLen);
+    const header = JSON.parse(new TextDecoder().decode(headerBytes)) as {
+      type: string; topic: string; time: string; source: string;
+      frameId: string; resolvedFrame: string; n: number;
+    };
+    const dataOffset = 4 + headerLen;
+    const xyzi = new Float32Array(buf, dataOffset, header.n * 4);
 
-      // Camera-binary: header + raw JPEG bytes. Decode here off the main thread.
-      if (headerObj.type === "camera-binary") {
-        const jpegBytes = buf.slice(dataOffset);
-        const blob = new Blob([jpegBytes], { type: (headerObj.mime as string) || "image/jpeg" });
-        createImageBitmap(blob).then((bmp) => {
-          self.postMessage({
-            type: "camera-bitmap-ready",
-            topic: headerObj.topic,
-            time: headerObj.time,
-            resolution: headerObj.resolution,
-            fps: headerObj.fps,
-            bitmap: bmp,
-          }, [bmp]);
-        }).catch((err) => {
-          self.postMessage({ type: "worker-error", scope: "camera-decode", message: String(err) });
-        });
-        return;
-      }
-
-      // Point-cloud-binary: header + Float32 xyzi interleaved.
-      const header = headerObj as {
-        type: string; topic: string; time: string; source: string;
-        frameId: string; resolvedFrame: string; n: number;
-      };
-      // Float32Array requires 4-byte aligned offset; server pads header to ensure this.
-      // If alignment is broken (older server), fall back to copy.
-      let xyzi: Float32Array;
-      if (dataOffset % 4 === 0) {
-        xyzi = new Float32Array(buf, dataOffset, header.n * 4);
-      } else {
-        const copy = buf.slice(dataOffset);
-        xyzi = new Float32Array(copy);
-      }
-
-      const rawPts: Point3D[] = new Array(header.n);
-      for (let i = 0; i < header.n; i++) {
-        const o = i * 4;
-        rawPts[i] = { x: xyzi[o], y: xyzi[o + 1], z: xyzi[o + 2], intensity: xyzi[o + 3] };
-      }
-
-      const filtered = filterPoints(rawPts);
-      appendToTopicBuffer(header.topic, filtered);
-      const history = readTopicBuffer(header.topic);
-      const renderable = selectRenderable(history);
-      self.postMessage({
-        type: "cloud-ready",
-        topic: header.topic,
-        renderable,
-        time: header.time,
-        frameId: header.frameId,
-        resolvedFrame: header.resolvedFrame,
-      });
-    } catch (err) {
-      self.postMessage({ type: "worker-error", scope: "parse-binary", message: String(err) });
+    // Build Point3D array from interleaved typed array.
+    // (Future: keep as typed array end-to-end; current renderer expects Point3D[].)
+    const rawPts: Point3D[] = new Array(header.n);
+    for (let i = 0; i < header.n; i++) {
+      const o = i * 4;
+      rawPts[i] = { x: xyzi[o], y: xyzi[o + 1], z: xyzi[o + 2], intensity: xyzi[o + 3] };
     }
+
+    const filtered = filterPoints(rawPts);
+    appendToTopicBuffer(header.topic, filtered);
+    const history = readTopicBuffer(header.topic);
+    const renderable = selectRenderable(history);
+    self.postMessage({
+      type: "cloud-ready",
+      topic: header.topic,
+      renderable,
+      time: header.time,
+      frameId: header.frameId,
+      resolvedFrame: header.resolvedFrame,
+    });
     return;
   }
 
