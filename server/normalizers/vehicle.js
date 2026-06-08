@@ -29,12 +29,14 @@ export function normalizeVehicleTelemetry(message, type, topic) {
   const telemetry = {};
 
   if (lowerType.includes("velocityinformation") || lowerTopic.includes("velocityinformation")) {
+    // VelocityMS is raw integer, scale ×0.01 → m/s. VelocityKMH field has an
+    // inconsistent scale in this CAN DBC, so we derive km/h from VelocityMS.
     const speed = scaledNumberOrUndefined(message.VelocityMS, 0.01);
-    const speedKmh = scaledNumberOrUndefined(message.VelocityKMH, 0.1);
-    // CAN bus sends empty frames (0) between real updates — ignore zero values
-    // so the last valid reading is preserved in state.
-    if (speed !== undefined && speed > 0) telemetry.speed = speed;
-    if (speedKmh !== undefined && speedKmh > 0) vehicle.speedKmh = speedKmh;
+    // CAN bus sends empty frames (0) between real updates — ignore zeros.
+    if (speed !== undefined && speed > 0) {
+      telemetry.speed = speed;
+      vehicle.speedKmh = Number((speed * 3.6).toFixed(2));
+    }
   }
 
   if (lowerType.includes("eps_response") || lowerTopic.includes("eps_response")) {

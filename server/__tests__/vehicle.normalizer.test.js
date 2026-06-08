@@ -29,10 +29,11 @@ describe("modeLabel", () => {
 // ─── VelocityInformation ─────────────────────────────────────────────────────
 
 describe("VelocityInformation", () => {
-  it("extracts speed in m/s (× 0.01) and km/h (× 0.1)", () => {
-    const result = norm("VelocityInformation", { VelocityMS: 200, VelocityKMH: 720 });
-    expect(result.speed).toBeCloseTo(2.0);
-    expect(result.vehicle.speedKmh).toBeCloseTo(72.0);
+  it("extracts speed from VelocityMS (× 0.01 → m/s), derives km/h via × 3.6", () => {
+    // VelocityMS=154 → 1.54 m/s → 5.54 km/h (real bag sample)
+    const result = norm("VelocityInformation", { VelocityMS: 154, VelocityKMH: 641 });
+    expect(result.speed).toBeCloseTo(1.54);
+    expect(result.vehicle.speedKmh).toBeCloseTo(5.54);
   });
 
   it("ignores zero/null velocity fields (CAN empty frames)", () => {
