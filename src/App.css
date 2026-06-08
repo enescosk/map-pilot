@@ -438,8 +438,70 @@ button:hover {
   grid-template-rows: 1fr;
 }
 
+/* Camera gets the lion's share; decision log gets just a peek (~160px). */
 .hud-right {
-  grid-template-rows: minmax(0, 1.6fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) minmax(140px, 200px);
+}
+
+/* Compact decision log — dense list, scrolls internally */
+.decision-panel {
+  padding: 10px 12px;
+}
+.decision-panel .panel-heading {
+  align-items: baseline;
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.decision-panel .panel-heading h2 {
+  font-size: 0.78rem;
+  margin: 0;
+}
+.decision-panel .panel-heading .panel-label {
+  font-size: 0.6rem;
+}
+.decision-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: 4px;
+}
+.decision-row {
+  align-items: baseline;
+  border-bottom: 1px solid rgba(56, 189, 248, 0.06);
+  display: grid;
+  font-size: 0.7rem;
+  gap: 8px;
+  grid-template-columns: 56px 1fr;
+  padding: 4px 0;
+}
+.decision-row:last-child {
+  border-bottom: none;
+}
+.decision-row > span {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 0.65rem;
+}
+.decision-row > div {
+  min-width: 0;
+}
+.decision-row strong {
+  color: var(--accent);
+  display: inline;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  margin-right: 6px;
+  text-transform: uppercase;
+}
+.decision-row p {
+  color: var(--text-secondary);
+  display: inline;
+  font-size: 0.72rem;
+  margin: 0;
 }
 
 .cockpit-charts {
