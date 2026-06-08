@@ -126,34 +126,43 @@ export function createVehicleRosSource({ emit, url } = {}) {
   }
 
   function start() {
+    // Idempotent: already connected / connecting → just (re-)subscribe and bail.
     if (rosSocket) {
       if (rosSocket.readyState === WebSocket.OPEN) {
         subscribe();
         return;
       }
-      // Stale socket in a non-OPEN state — close it cleanly before reconnecting
-      rosSocket.close();
+      if (rosSocket.readyState === WebSocket.CONNECTING) {
+        // Still negotiating — do nothing, the existing "open" handler will subscribe.
+        return;
+      }
+      // Stale socket in CLOSING/CLOSED — detach listeners so its trailing
+      // events don't clobber the new instance's state, then drop the reference.
+      try { rosSocket.removeAllListeners(); } catch { /* noop */ }
+      try { rosSocket.close(); } catch { /* noop */ }
       rosSocket = undefined;
       subscribed = false;
     }
 
-    rosSocket = new WebSocket(rosbridgeUrl);
+    const socket = new WebSocket(rosbridgeUrl);
+    rosSocket = socket;
 
-    rosSocket.on("open", () => {
+    socket.on("open", () => {
+      // Guard: if we got replaced by a newer start() call, do nothing.
+      if (socket !== rosSocket) return;
       connected = true;
       emit(getStatus());
       subscribe();
     });
 
-    rosSocket.on("message", (raw) => {
+    socket.on("message", (raw) => {
+      if (socket !== rosSocket) return;
       try {
         const packet = JSON.parse(raw.toString());
         if (packet.op !== "publish" || !packet.topic || !packet.msg) {
           return;
         }
 
-        // rosbridge_server doesn't include msg._type. Infer it from topic name
-        // shape so downstream normalizers can dispatch correctly.
         const inferredType = packet.msg._type || inferRosTypeFromTopic(packet.topic, packet.msg);
 
         const normalized = normalizeFrame({
@@ -170,14 +179,25 @@ export function createVehicleRosSource({ emit, url } = {}) {
       }
     });
 
-    rosSocket.on("close", () => {
+    socket.on("close", () => {
+      // Old/replaced socket closing — don't touch shared state.
+      if (socket !== rosSocket) return;
       connected = false;
       subscribed = false;
       emit(getStatus());
     });
 
-    rosSocket.on("error", (error) => {
-      emit({ type: "backend-error", message: `Vehicle ROS bridge error: ${error.message}` });
+    socket.on("error", (error) => {
+      // Suppress "closed before established" for sockets that were already
+      // replaced by a newer start() — those are expected lifecycle events,
+      // not user-visible errors.
+      if (socket !== rosSocket) return;
+      const message = String(error?.message || error);
+      if (/closed before the connection was established/i.test(message)) {
+        // Connection attempt aborted by us — swallow.
+        return;
+      }
+      emit({ type: "backend-error", message: `Vehicle ROS bridge error: ${message}` });
     });
   }
 
