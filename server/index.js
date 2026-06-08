@@ -117,7 +117,11 @@ function packPointCloudBinary(envelope) {
     resolvedFrame: envelope.resolvedFrame || "",
     n,
   };
-  const headerBuf = Buffer.from(JSON.stringify(header), "utf8");
+  const headerJson = Buffer.from(JSON.stringify(header), "utf8");
+  // Pad header to multiple of 4 bytes so the Float32 payload that follows is
+  // 4-byte aligned (required by `new Float32Array(buf, offset, ...)` in the worker).
+  const padBytes = (4 - (headerJson.length % 4)) % 4;
+  const headerBuf = padBytes === 0 ? headerJson : Buffer.concat([headerJson, Buffer.alloc(padBytes, 0x20)]);
   const headerLen = Buffer.alloc(4);
   headerLen.writeUInt32LE(headerBuf.length, 0);
   const xyzi = Buffer.alloc(n * 16); // 4 floats × 4 bytes

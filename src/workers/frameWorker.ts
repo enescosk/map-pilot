@@ -134,38 +134,51 @@ self.onmessage = (ev: MessageEvent) => {
   const { type, payload } = ev.data as { type: string; payload: unknown };
 
   if (type === "parse-binary") {
-    // Format: [4 bytes header length LE] [header JSON utf8] [Float32 xyzi interleaved]
-    const buf = payload as ArrayBuffer;
-    const view = new DataView(buf);
-    const headerLen = view.getUint32(0, true);
-    const headerBytes = new Uint8Array(buf, 4, headerLen);
-    const header = JSON.parse(new TextDecoder().decode(headerBytes)) as {
-      type: string; topic: string; time: string; source: string;
-      frameId: string; resolvedFrame: string; n: number;
-    };
-    const dataOffset = 4 + headerLen;
-    const xyzi = new Float32Array(buf, dataOffset, header.n * 4);
+    try {
+      // Format: [4 bytes header length LE] [header JSON utf8, padded to /4] [Float32 xyzi interleaved]
+      const buf = payload as ArrayBuffer;
+      const view = new DataView(buf);
+      const headerLen = view.getUint32(0, true);
+      const headerBytes = new Uint8Array(buf, 4, headerLen);
+      const header = JSON.parse(new TextDecoder().decode(headerBytes)) as {
+        type: string; topic: string; time: string; source: string;
+        frameId: string; resolvedFrame: string; n: number;
+      };
+      const dataOffset = 4 + headerLen;
 
-    // Build Point3D array from interleaved typed array.
-    // (Future: keep as typed array end-to-end; current renderer expects Point3D[].)
-    const rawPts: Point3D[] = new Array(header.n);
-    for (let i = 0; i < header.n; i++) {
-      const o = i * 4;
-      rawPts[i] = { x: xyzi[o], y: xyzi[o + 1], z: xyzi[o + 2], intensity: xyzi[o + 3] };
+      // Float32Array requires 4-byte aligned offset. Server pads header to
+      // guarantee this, but fall back to a copy if a stale/old server sends
+      // unaligned frames so we never silently drop.
+      let xyzi: Float32Array;
+      if (dataOffset % 4 === 0) {
+        xyzi = new Float32Array(buf, dataOffset, header.n * 4);
+      } else {
+        const copy = buf.slice(dataOffset);
+        xyzi = new Float32Array(copy);
+      }
+
+      const rawPts: Point3D[] = new Array(header.n);
+      for (let i = 0; i < header.n; i++) {
+        const o = i * 4;
+        rawPts[i] = { x: xyzi[o], y: xyzi[o + 1], z: xyzi[o + 2], intensity: xyzi[o + 3] };
+      }
+
+      const filtered = filterPoints(rawPts);
+      appendToTopicBuffer(header.topic, filtered);
+      const history = readTopicBuffer(header.topic);
+      const renderable = selectRenderable(history);
+      self.postMessage({
+        type: "cloud-ready",
+        topic: header.topic,
+        renderable,
+        time: header.time,
+        frameId: header.frameId,
+        resolvedFrame: header.resolvedFrame,
+      });
+    } catch (err) {
+      // Surface decode failures instead of swallowing them silently.
+      self.postMessage({ type: "worker-error", scope: "parse-binary", message: String(err) });
     }
-
-    const filtered = filterPoints(rawPts);
-    appendToTopicBuffer(header.topic, filtered);
-    const history = readTopicBuffer(header.topic);
-    const renderable = selectRenderable(history);
-    self.postMessage({
-      type: "cloud-ready",
-      topic: header.topic,
-      renderable,
-      time: header.time,
-      frameId: header.frameId,
-      resolvedFrame: header.resolvedFrame,
-    });
     return;
   }
 
