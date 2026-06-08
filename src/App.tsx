@@ -1,4 +1,4 @@
-import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -271,11 +271,7 @@ function VehicleTopView({ vehicle }: { vehicle: TelemetryState["vehicle"] }) {
 
 function VehicleCockpit({ telemetry, time }: { telemetry: TelemetryState; time?: string }) {
   const vehicle = telemetry.vehicle;
-  const steeringAngle = Number(vehicle.steeringAngle || 0);
   const hasTelemetry = telemetry.derived || telemetry.heading !== undefined || Object.values(vehicle).some((value) => value !== undefined);
-  const steeringStyle = {
-    "--steering-angle": `${Math.max(-90, Math.min(90, steeringAngle))}deg`,
-  } as CSSProperties;
   const gps = telemetry.gps || {};
   const hasGps = gps.latitude !== undefined && gps.longitude !== undefined;
 
@@ -304,7 +300,7 @@ function VehicleCockpit({ telemetry, time }: { telemetry: TelemetryState; time?:
           </div>
           <div className="cockpit-metric">
             <span>Throttle</span>
-            <strong>{formatNumber(vehicle.throttleSetSpeedKmh, 0)} <em style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>km/h</em></strong>
+            <strong>{formatNumber(vehicle.throttleSetSpeedKmh, 0)} km/h</strong>
             <em>cruise {formatBoolean(vehicle.cruiseActive)}</em>
           </div>
           <div className="cockpit-metric">
@@ -327,21 +323,16 @@ function VehicleCockpit({ telemetry, time }: { telemetry: TelemetryState; time?:
             <strong>{telemetry.heading !== undefined ? `${formatNumber(telemetry.heading, 0)}°` : "--"}</strong>
             <em>compass</em>
           </div>
-          <div className="steering-wheel-widget" style={steeringStyle} aria-label="Steering angle">
-            <div className="steering-wheel">
-              <span />
-            </div>
-          </div>
           {hasGps && (
             <>
               <div className="cockpit-metric">
                 <span>Latitude</span>
-                <strong>{formatNumber(gps.latitude, 6)}°</strong>
+                <strong>{formatNumber(gps.latitude, 5)}°</strong>
                 <em>GPS</em>
               </div>
               <div className="cockpit-metric">
                 <span>Longitude</span>
-                <strong>{formatNumber(gps.longitude, 6)}°</strong>
+                <strong>{formatNumber(gps.longitude, 5)}°</strong>
                 <em>GPS</em>
               </div>
               {gps.altitude !== undefined && (
