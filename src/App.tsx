@@ -277,6 +277,8 @@ function VehicleCockpit({ telemetry, time }: { telemetry: TelemetryState; time?:
   const steeringStyle = {
     "--steering-angle": `${Math.max(-90, Math.min(90, steeringAngle))}deg`,
   } as CSSProperties;
+  const gps = telemetry.gps || {};
+  const hasGps = gps.latitude !== undefined && gps.longitude !== undefined;
 
   return (
     <section className="workspace-panel telemetry-card cockpit-card">
@@ -296,11 +298,6 @@ function VehicleCockpit({ telemetry, time }: { telemetry: TelemetryState; time?:
             <strong>{formatNumber(vehicle.steeringAngle, 0)}°</strong>
             <em>target {formatNumber(vehicle.targetSteeringAngle, 0)}°</em>
           </div>
-          <div className="steering-wheel-widget" style={steeringStyle} aria-label="Steering angle">
-            <div className="steering-wheel">
-              <span />
-            </div>
-          </div>
           <div className="cockpit-metric">
             <span>Brake</span>
             <strong>{formatNumber(vehicle.brakePercent, 0)}%</strong>
@@ -308,7 +305,7 @@ function VehicleCockpit({ telemetry, time }: { telemetry: TelemetryState; time?:
           </div>
           <div className="cockpit-metric">
             <span>Throttle</span>
-            <strong>{formatNumber(vehicle.throttleSetSpeedKmh, 0)}</strong>
+            <strong>{formatNumber(vehicle.throttleSetSpeedKmh, 0)} <em style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>km/h</em></strong>
             <em>cruise {formatBoolean(vehicle.cruiseActive)}</em>
           </div>
           <div className="cockpit-metric">
@@ -326,6 +323,37 @@ function VehicleCockpit({ telemetry, time }: { telemetry: TelemetryState; time?:
             <strong>{formatNumber(vehicle.batterySoc, 0)}%</strong>
             <em>{formatNumber(vehicle.batteryVoltage, 0)} V</em>
           </div>
+          <div className="cockpit-metric">
+            <span>Heading</span>
+            <strong>{telemetry.heading !== undefined ? `${formatNumber(telemetry.heading, 0)}°` : "--"}</strong>
+            <em>compass</em>
+          </div>
+          <div className="steering-wheel-widget" style={steeringStyle} aria-label="Steering angle">
+            <div className="steering-wheel">
+              <span />
+            </div>
+          </div>
+          {hasGps && (
+            <>
+              <div className="cockpit-metric">
+                <span>Latitude</span>
+                <strong>{formatNumber(gps.latitude, 6)}°</strong>
+                <em>GPS</em>
+              </div>
+              <div className="cockpit-metric">
+                <span>Longitude</span>
+                <strong>{formatNumber(gps.longitude, 6)}°</strong>
+                <em>GPS</em>
+              </div>
+              {gps.altitude !== undefined && (
+                <div className="cockpit-metric">
+                  <span>Altitude</span>
+                  <strong>{formatNumber(gps.altitude, 1)} m</strong>
+                  <em>GPS</em>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
     </section>
@@ -1568,9 +1596,9 @@ function App() {
           </select>
         </label>
         <div className="mode-switcher">
-          <button type="button" className={mode === "perception" ? "active" : ""} onClick={() => setMode("perception")}>Perception</button>
+          <button type="button" className={mode === "perception" ? "active" : ""} onClick={() => setMode("perception")}>Cockpit</button>
           <button type="button" className={mode === "control" ? "active" : ""} onClick={() => setMode("control")}>Control</button>
-          <button type="button" className={mode === "debug" ? "active" : ""} onClick={() => setMode("debug")}>Triage & Debug</button>
+          <button type="button" className={mode === "debug" ? "active" : ""} onClick={() => setMode("debug")}>LiDAR</button>
         </div>
         <div className="top-actions">
           <span className={
@@ -1602,30 +1630,15 @@ function App() {
 
       <section className={`inspector-grid mode-${mode}`}>
         <aside className="hud-left">
-          <CameraViewer camera={camera} />
-          <TopicPanel topics={bagStatus.topics} latest={latestFrame} />
-        </aside>
-
-        <section className="hud-center">
-          <LidarWorkspace
-            readings={lidarReadings}
-            pointClouds={pointClouds}
-            activeTopic={activePointCloudTopic}
-            setActiveTopic={setActivePointCloudTopic}
-            vehiclePose={telemetry.pose}
-            emptyMessage={sourceMode.waiting}
-            onMapViewChange={(active) => { mapViewActiveRef.current = active; }}
-          />
-          <MapPanel gps={telemetry.gps} speed={telemetry.speed} />
-          <DecisionLogPanel entries={decisionLogEntries} />
-        </section>
-
-        <aside className="hud-right">
           <ConnectionPanel
             onConnect={connectSource}
             currentSource={backendSource}
             connected={backendConnected}
             backendError={backendError}
+          />
+          <VehicleControlPanel
+            sendMessage={sendMessage}
+            onEmergencyStopReady={(fn) => { emergencyStopRef.current = fn; }}
           />
           <ControlPanel
             isMapping={false}
@@ -1636,20 +1649,47 @@ function App() {
             onStartLidar={() => sendPlaybackCommand("start-lidar")}
             onStopLidar={() => sendPlaybackCommand("stop-lidar")}
           />
-          <VehicleControlPanel
-            sendMessage={sendMessage}
-            onEmergencyStopReady={(fn) => { emergencyStopRef.current = fn; }}
-          />
-          <div className="telemetry-charts">
-            <VehicleCockpit telemetry={telemetry} time={latestFrame?.time} />
-            <SparkChart
-              title="/imu/acceleration"
-              value={formatNumber(vectorMagnitude(telemetry.acceleration))}
-              unit="m/s2"
-              data={series.acceleration}
-              color="#34d399"
+          <TopicPanel topics={bagStatus.topics} latest={latestFrame} />
+        </aside>
+
+        {mode === "debug" ? (
+          <section className="hud-center hud-center--lidar">
+            <LidarWorkspace
+              readings={lidarReadings}
+              pointClouds={pointClouds}
+              activeTopic={activePointCloudTopic}
+              setActiveTopic={setActivePointCloudTopic}
+              vehiclePose={telemetry.pose}
+              emptyMessage={sourceMode.waiting}
+              onMapViewChange={(active) => { mapViewActiveRef.current = active; }}
             />
-          </div>
+          </section>
+        ) : (
+          <section className="hud-center hud-center--cockpit">
+            <VehicleCockpit telemetry={telemetry} time={latestFrame?.time} />
+            <MapPanel gps={telemetry.gps} speed={telemetry.speed} />
+            <div className="cockpit-charts">
+              <SparkChart
+                title="/imu/acceleration"
+                value={formatNumber(vectorMagnitude(telemetry.acceleration))}
+                unit="m/s2"
+                data={series.acceleration}
+                color="#34d399"
+              />
+              <SparkChart
+                title="speed"
+                value={formatNumber(telemetry.vehicle.speedKmh, 1)}
+                unit="km/h"
+                data={series.speed}
+                color="#fbbf24"
+              />
+            </div>
+          </section>
+        )}
+
+        <aside className="hud-right">
+          <CameraViewer camera={camera} />
+          <DecisionLogPanel entries={decisionLogEntries} />
         </aside>
       </section>
 

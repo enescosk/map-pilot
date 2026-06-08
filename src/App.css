@@ -412,67 +412,41 @@ button:hover {
   min-height: 0;
 }
 
-/* Perception Mode */
-.mode-perception {
-  grid-template-columns: 320px 1fr 340px;
-}
-.mode-perception .hud-left {
-  grid-template-rows: 1fr 1fr;
-}
-.mode-perception .hud-center {
-  grid-template-rows: 1fr;
-}
-.mode-perception .hud-right {
-  grid-template-rows: min-content auto min-content;
-}
-.mode-perception .hud-center .map-workspace,
-.mode-perception .hud-center .decision-panel {
-  display: none;
-}
-.mode-perception .hud-right .control-panel {
-  display: none;
-}
-.mode-perception .hud-right .vehicle-control,
-.mode-debug .hud-right .vehicle-control {
-  display: none;
-}
+/* ----- Layout: 3-column grid ----- */
+/* LEFT: controls (connection / vehicle control / topics)
+   CENTER: cockpit (perception/control) OR lidar (debug)
+   RIGHT: camera (zed2i, big) + decision log */
 
-/* Control Mode */
+.mode-perception,
 .mode-control {
-  grid-template-columns: 280px 1fr 380px;
+  grid-template-columns: 320px minmax(0, 1fr) minmax(480px, 1.1fr);
 }
-.mode-control .hud-left {
-  grid-template-rows: 1fr auto;
-}
-.mode-control .hud-center {
-  grid-template-rows: minmax(280px, 40vh) 1fr;
-}
-.mode-control .hud-right {
-  grid-template-rows: auto auto auto;
-}
-.mode-control .hud-center .decision-panel {
-  display: none;
+.mode-debug {
+  grid-template-columns: 320px minmax(0, 1.6fr) minmax(420px, 1fr);
 }
 
-/* Debug Mode */
-.mode-debug {
-  grid-template-columns: 360px 1fr 300px;
+.hud-left {
+  grid-template-rows: auto auto auto 1fr;
 }
-.mode-debug .hud-left {
-  grid-template-rows: auto 1fr;
+
+/* Cockpit center: vertical stack of cockpit + map + charts */
+.hud-center--cockpit {
+  grid-template-rows: minmax(0, 1.4fr) minmax(0, 1fr) auto;
 }
-.mode-debug .hud-center {
+
+.hud-center--lidar {
   grid-template-rows: 1fr;
 }
-.mode-debug .hud-right {
-  grid-template-rows: auto 1fr;
+
+.hud-right {
+  grid-template-rows: minmax(0, 1.6fr) minmax(0, 1fr);
 }
-.mode-debug .hud-center .lidar-workspace,
-.mode-debug .hud-center .map-workspace {
-  display: none;
-}
-.mode-debug .hud-right .control-panel {
-  display: none;
+
+.cockpit-charts {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr 1fr;
+  min-height: 120px;
 }
 .workspace-panel,
 .chart-panel,
@@ -551,8 +525,6 @@ button:hover {
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.05em;
-  overflow: hidden;
-  text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -571,6 +543,12 @@ button:hover {
 .map-workspace {
   display: grid;
   grid-template-rows: auto 1fr auto;
+  min-height: 0;
+}
+
+.camera-workspace {
+  /* Larger min so zed2i 1280×720 fits comfortably without forcing scroll */
+  min-height: 360px;
 }
 
 .lidar-workspace {
@@ -917,12 +895,32 @@ button:hover {
   overflow: hidden;
 }
 
+/* Wide cockpit layout for center column: speed + top view side by side,
+   then a 4-column metric grid spanning the full width. */
 .cockpit-layout {
   display: grid;
-  gap: 12px;
-  grid-template-rows: auto auto 1fr;
+  gap: 14px;
+  grid-template-rows: minmax(180px, auto) 1fr;
   min-height: 0;
-  padding: 12px;
+  padding: 14px;
+}
+.cockpit-layout > .speed-gauge-card,
+.cockpit-layout > .vehicle-top-view,
+.cockpit-layout > .vehicle-top {
+  grid-row: 1;
+}
+.cockpit-layout > .speed-gauge-card { grid-column: 1; }
+.cockpit-layout > .vehicle-top-view,
+.cockpit-layout > .vehicle-top { grid-column: 2; }
+.cockpit-layout {
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.4fr);
+}
+.cockpit-layout > .cockpit-status-grid {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+.cockpit-layout > .cockpit-note {
+  grid-column: 1 / -1;
 }
 
 .speed-gauge-card {
@@ -1304,8 +1302,9 @@ button:hover {
 
 .cockpit-status-grid {
   display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-content: start;
 }
 
 .cockpit-metric {
