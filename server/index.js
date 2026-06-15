@@ -32,7 +32,26 @@ const AUTO_START_SOURCE =
 
 const wss = new WebSocketServer({ port: WS_PORT });
 let lidarSource;
-let latestTelemetryEnvelope; // cached for snapshot-on-connect
+// Cumulative telemetry across all topics, sent as a single snapshot on connect
+// so a freshly-loaded dashboard shows every field immediately instead of waiting
+// for each (possibly slow) topic to publish its next frame.
+let telemetrySnapshot = {};
+let latestTelemetryEnvelope;
+
+// Deep-merge a per-frame telemetry patch into the cumulative snapshot. Plain
+// objects merge recursively; everything else (primitives, arrays) replaces.
+function mergeTelemetryDeep(target, patch) {
+  if (!patch || typeof patch !== "object") return target;
+  const out = { ...target };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      out[key] = mergeTelemetryDeep(out[key] && typeof out[key] === "object" ? out[key] : {}, value);
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
 
 function sanitizeUrlForLog(value) {
   try {
@@ -136,7 +155,18 @@ function broadcast(envelope) {
 
 telemetryBus.on(BUS_EVENTS.ENVELOPE, (envelope) => {
   if (envelope?.type === "telemetry") {
-    latestTelemetryEnvelope = envelope;
+    telemetrySnapshot = mergeTelemetryDeep(telemetrySnapshot, envelope.telemetry || {});
+    // The merged snapshot spans many topics — the per-frame "derived" marker is
+    // meaningless on it and would mislead the frontend's derived-speed handling.
+    delete telemetrySnapshot.derived;
+    delete telemetrySnapshot.derivedFrom;
+    latestTelemetryEnvelope = {
+      type: "telemetry",
+      source: envelope.source,
+      topic: "snapshot",
+      time: envelope.time,
+      telemetry: telemetrySnapshot,
+    };
   }
   broadcast(envelope);
 });
@@ -234,6 +264,7 @@ wss.on("connection", (ws) => {
           }
         }
         latestTelemetryEnvelope = undefined;
+        telemetrySnapshot = {};
         telemetryStore.reset();
         setLidarSource(createLidarSource(source, rosbridgeUrl, mqttUrl));
         lidarSource.start();
