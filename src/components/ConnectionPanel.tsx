@@ -18,7 +18,7 @@ function save(key: string, value: string) {
 }
 
 function ConnectionPanel({ onConnect, currentSource, connected, backendError }: Props) {
-  const [source, setSource] = useState<SourceMode>(() => stored("mp_source", "vehicle-ros") as SourceMode);
+  const [source, setSource] = useState<SourceMode>(() => stored("mp_source", "bag") as SourceMode);
   const [vehicleIp, setVehicleIp] = useState(() => stored("mp_vehicle_ip", "172.22.78.35"));
   const [mqttIp, setMqttIp] = useState(() => stored("mp_mqtt_ip", "172.22.78.35"));
 

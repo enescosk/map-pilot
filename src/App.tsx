@@ -1386,6 +1386,7 @@ function App() {
 
         if (packet.type === "source-changed") {
           setBackendSource(packet.source || "unknown");
+          setBackendError(null);
           resetPlaybackState();
         }
 
@@ -1512,8 +1513,11 @@ function App() {
     }
   }, [backendConnected, sendMessage]);
 
-  const bagName = useMemo(() => bagStatus.path.split("/").at(-1) || "2025-07-21-16-54-43.bag", [bagStatus.path]);
   const isLiveSource = backendSource === "mqtt" || backendSource === "vehicle-ros" || backendSource === "rosbridge" || backendSource === "direct-serial";
+  const bagName = useMemo(() => {
+    if (isLiveSource) return "Canlı Araç";
+    return bagStatus.path.split("/").at(-1) || "—";
+  }, [bagStatus.path, isLiveSource]);
   const sourceMode = sourceModeInfo(backendSource || bagStatus.source);
   const sourceHealth =
     topicHealth.sources[backendSource] ||
@@ -1557,20 +1561,22 @@ function App() {
       <header className="top-bar">
         <div>
           <span className="app-kicker">MapPilot Cockpit</span>
-          <h1>{bagName}</h1>
+          {!isLiveSource && <h1>{bagName}</h1>}
         </div>
-        <label className="bag-picker">
-          <span>Bag</span>
-          <select value={selectedBagPath} onChange={(event) => loadBag(event.currentTarget.value)} disabled={isLiveSource}>
-            {bagFiles.length === 0 ? (
-              <option value="">{isLiveSource ? "Live vehicle stream" : "No .bag files found"}</option>
-            ) : bagFiles.map((file) => (
-              <option key={file.path} value={file.path}>
-                {file.name} ({formatFileSize(file.size)})
-              </option>
-            ))}
-          </select>
-        </label>
+        {!isLiveSource && (
+          <label className="bag-picker">
+            <span>Bag</span>
+            <select value={selectedBagPath} onChange={(event) => loadBag(event.currentTarget.value)}>
+              {bagFiles.length === 0 ? (
+                <option value="">No .bag files found</option>
+              ) : bagFiles.map((file) => (
+                <option key={file.path} value={file.path}>
+                  {file.name} ({formatFileSize(file.size)})
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <div className="mode-switcher">
           <button type="button" className={mode === "perception" ? "active" : ""} onClick={() => setMode("perception")}>Cockpit</button>
           <button type="button" className={mode === "debug" ? "active" : ""} onClick={() => setMode("debug")}>LiDAR</button>
