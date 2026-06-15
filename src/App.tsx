@@ -169,7 +169,10 @@ function SparkChart({ title, value, unit, data, color }: {
 }
 
 function SpeedGauge({ speedKmh, speedMs }: { speedKmh?: number; speedMs: number }) {
-  const displaySpeed = Number.isFinite(speedKmh) ? Number(speedKmh) : speedMs * 3.6;
+  // Speed comes only from the CAN /VelocityInformation topic (vehicle.speedKmh).
+  // When it's absent we show "—" rather than a misleading 0 km/h.
+  const hasSpeed = Number.isFinite(speedKmh);
+  const displaySpeed = hasSpeed ? Number(speedKmh) : 0;
   const maxSpeed = 40;
   const ratio = Math.max(0, Math.min(1, displaySpeed / maxSpeed));
   const startAngle = 135;
@@ -194,7 +197,7 @@ function SpeedGauge({ speedKmh, speedMs }: { speedKmh?: number; speedMs: number 
   return (
     <section className="speed-gauge-card" aria-label="Vehicle speed gauge">
       <div className="gauge-dial">
-        <svg viewBox="0 0 200 200" role="img" aria-label={`${formatNumber(displaySpeed, 1)} km/h`}>
+        <svg viewBox="0 0 200 200" role="img" aria-label={hasSpeed ? `${formatNumber(displaySpeed, 1)} km/h` : "Hız verisi yok"}>
           <path className="gauge-track" d={arcPath(startAngle, startAngle + sweepAngle)} />
           <path className="gauge-band band-low" d={arcPath(angleForSpeed(0), angleForSpeed(14))} />
           <path className="gauge-band band-mid" d={arcPath(angleForSpeed(14.8), angleForSpeed(26))} />
@@ -207,13 +210,13 @@ function SpeedGauge({ speedKmh, speedMs }: { speedKmh?: number; speedMs: number 
           <text className="gauge-tick-svg" x="153" y="151">40</text>
         </svg>
         <div className="gauge-readout">
-          <strong>{formatNumber(displaySpeed, 1)}</strong>
+          <strong>{hasSpeed ? formatNumber(displaySpeed, 1) : "—"}</strong>
           <span>km/h</span>
         </div>
       </div>
       <div className="gauge-subreadout">
-        <span>{formatNumber(speedMs)} m/s</span>
-        <span>{formatNumber(ratio * 100, 0)}%</span>
+        <span>{hasSpeed ? `${formatNumber(speedMs)} m/s` : "veri yok"}</span>
+        <span>{hasSpeed ? `${formatNumber(ratio * 100, 0)}%` : "—"}</span>
       </div>
     </section>
   );
