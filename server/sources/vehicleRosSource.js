@@ -52,23 +52,6 @@ export function createVehicleRosSource({ emit, url } = {}) {
     };
   }
 
-  function emitTopicList() {
-    emit({
-      type: "bag-status",
-      connected: true,
-      playing: true,
-      source: "vehicle-ros",
-      path: "",
-      frameCount: 0,
-      cursor: 0,
-      topics: LIVE_ROS_TOPICS.map((t) => ({ topic: t, type: "", count: 0 })),
-      currentTime: "",
-      startTime: "",
-      endTime: "",
-      durationSeconds: 0,
-    });
-  }
-
   function subscribe() {
     if (!rosSocket || rosSocket.readyState !== WebSocket.OPEN || subscribed) {
       return;
@@ -81,7 +64,6 @@ export function createVehicleRosSource({ emit, url } = {}) {
       }));
     }
     subscribed = true;
-    emitTopicList();
   }
 
   function unsubscribe() {
