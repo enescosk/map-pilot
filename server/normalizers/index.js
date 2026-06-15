@@ -20,10 +20,6 @@ import { telemetryBus, BUS_EVENTS } from "../services/telemetryBus.js";
 
 const DEFAULT_SOURCE = "bag-playback";
 
-// Tracks the last time a native CAN speed message was seen.
-// Used to suppress odom-derived speed when real speed data is available.
-let nativeSpeedLastSeenMs = 0;
-
 export function normalizeFrame(frame) {
   const message = frame.message || frame.msg || frame.payload || frame;
   const type = frame.type || frame.msgType || "";
@@ -163,10 +159,6 @@ function normalizeFrameLegacy({ message, type, topic, time, source }) {
 
   const vehicleTelemetry = normalizeVehicleTelemetry(message, type, topic);
   if (vehicleTelemetry) {
-    // Track when CAN speed was last seen so odom fallback stays suppressed.
-    if (vehicleTelemetry.speed !== undefined || vehicleTelemetry.vehicle?.speedKmh !== undefined) {
-      nativeSpeedLastSeenMs = Date.now();
-    }
     return {
       type: "telemetry",
       source,
@@ -176,10 +168,7 @@ function normalizeFrameLegacy({ message, type, topic, time, source }) {
     };
   }
 
-  const derivedTelemetry = normalizeDerivedTelemetry(message, type, topic, {
-    // Suppress odom-derived speed for 2 s after any CAN speed message.
-    nativeSpeedAvailable: (Date.now() - nativeSpeedLastSeenMs) < 2000,
-  });
+  const derivedTelemetry = normalizeDerivedTelemetry(message, type, topic);
   if (derivedTelemetry) {
     return {
       type: "telemetry",

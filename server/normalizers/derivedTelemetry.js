@@ -29,7 +29,7 @@ function headingFromFloatMessage(message) {
   return Number(normalized.toFixed(2));
 }
 
-export function normalizeDerivedTelemetry(message, type, topic, options = {}) {
+export function normalizeDerivedTelemetry(message, type, topic) {
   const lowerType = String(type || "").toLowerCase();
   const lowerTopic = String(topic || "").toLowerCase();
   const telemetry = {
@@ -39,17 +39,13 @@ export function normalizeDerivedTelemetry(message, type, topic, options = {}) {
   const vehicle = {};
 
   if (lowerType.includes("odometry") || lowerTopic.includes("odom")) {
-    const linear = message.twist?.twist?.linear || {};
-    const angular = message.twist?.twist?.angular || {};
-    const speedMps = finiteVectorMagnitude(linear);
-    // Only write speed when non-zero — odom packets with zero twist are noise,
-    // not genuine stops. State holds last valid reading until a real value arrives.
-    if (!options.nativeSpeedAvailable && speedMps > 0) {
-      telemetry.speed = Number(speedMps.toFixed(3));
-      vehicle.speedKmh = Number((speedMps * 3.6).toFixed(2));
-    }
-    telemetry.linearVelocity = linear;
-    telemetry.angularVelocity = angular;
+    // Speed is intentionally NOT derived from odometry. Odometry velocity
+    // (GNSS/EKF earth-frame or visual) is unreliable as ground speed — it shows
+    // tens of km/h while the vehicle is stationary. Speed comes only from the CAN
+    // /VelocityInformation topic; if that topic is absent, no speed is shown
+    // rather than displaying a wrong value. Odometry is still used for pose/heading.
+    telemetry.linearVelocity = message.twist?.twist?.linear || {};
+    telemetry.angularVelocity = message.twist?.twist?.angular || {};
     telemetry.pose = message.pose?.pose;
 
     const yaw = quaternionYawDegrees(message.pose?.pose?.orientation);

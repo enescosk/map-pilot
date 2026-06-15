@@ -23,10 +23,12 @@ describe("Odometry", () => {
     },
   };
 
-  it("extracts speed magnitude from linear velocity", () => {
+  it("never derives speed from odometry (speed comes only from CAN)", () => {
+    // Odometry velocity is unreliable as ground speed (shows motion when the
+    // vehicle is stopped), so we deliberately do not emit speed/speedKmh.
     const result = norm("nav_msgs/Odometry", msg);
-    expect(result.speed).toBeCloseTo(5.0); // sqrt(3²+4²+0²)
-    expect(result.vehicle.speedKmh).toBeCloseTo(18.0); // 5 * 3.6
+    expect(result.speed).toBeUndefined();
+    expect(result.vehicle).toBeUndefined();
   });
 
   it("extracts heading from identity quaternion (0°)", () => {
@@ -47,20 +49,15 @@ describe("Odometry", () => {
     expect(result.derivedFrom).toBe("/odom");
   });
 
-  it("suppresses speed and vehicle when nativeSpeedAvailable is true", () => {
-    const result = norm("nav_msgs/Odometry", msg, "/odom", { nativeSpeedAvailable: true });
+  it("does not derive speed even for /ekf/odometry_earth with high velocity", () => {
+    const fast = { twist: { twist: { linear: { x: 10, y: 0, z: 0 }, angular: {} } } };
+    const result = norm("nav_msgs/Odometry", fast, "/ekf/odometry_earth");
     expect(result.speed).toBeUndefined();
-    expect(result.vehicle).toBeUndefined();
   });
 
-  it("matches by topic containing 'odom' regardless of type string", () => {
+  it("matches by topic containing 'odom' but still emits no speed", () => {
     const result = norm("UnknownType", msg, "/robot/odom");
-    expect(result.speed).toBeDefined();
-  });
-
-  it("handles missing twist gracefully (zero speed is not emitted)", () => {
-    const result = norm("nav_msgs/Odometry", {});
-    // Zero speed from missing/zero twist is filtered — state holds last valid reading.
+    expect(result.derived).toBe(true);
     expect(result.speed).toBeUndefined();
   });
 });

@@ -74,13 +74,15 @@ describe("normalizeFrame — legacy path", () => {
     expect(result.src).toMatch(/^data:image\/jpeg;base64,/);
   });
 
-  it("routes nav_msgs/Odometry to telemetry with speed", () => {
+  it("routes nav_msgs/Odometry to telemetry with pose but no derived speed", () => {
     const result = frame("/ekf/odometry_earth", "nav_msgs/Odometry", {
       twist: { twist: { linear: { x: 3, y: 4, z: 0 }, angular: { x: 0, y: 0, z: 0 } } },
       pose: { pose: { position: { x: 0, y: 0, z: 0 }, orientation: { x: 0, y: 0, z: 0, w: 1 } } },
     });
     expect(result.type).toBe("telemetry");
-    expect(result.telemetry.speed).toBeCloseTo(5.0);
+    // Speed is never derived from odometry — only from CAN /VelocityInformation.
+    expect(result.telemetry.speed).toBeUndefined();
+    expect(result.telemetry.pose).toBeDefined();
   });
 
   it("routes sensor_msgs/NavSatFix to telemetry with gps", () => {
