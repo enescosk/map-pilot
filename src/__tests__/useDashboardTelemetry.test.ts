@@ -4,7 +4,7 @@
  * the state machine directly through the hook's exported functions.
  */
 import { describe, it, expect } from "vitest";
-import { emptyTelemetry } from "../hooks/useDashboardTelemetry";
+import { emptyTelemetry, median } from "../hooks/useDashboardTelemetry";
 import { vectorMagnitude } from "../utils/telemetryFormatters";
 import type { TelemetryState } from "../types/telemetry";
 
@@ -109,6 +109,37 @@ describe("cockpit event detection", () => {
   it("normal acceleration: magnitude <= 12", () => {
     const { next } = mergeTelemetry(emptyTelemetry, { acceleration: { x: 2, y: 2, z: 2 } }, false);
     expect(vectorMagnitude(next.acceleration)).toBeLessThanOrEqual(12);
+  });
+});
+
+// ─── speed median filter ──────────────────────────────────────────────────────
+
+describe("median (speed smoothing)", () => {
+  it("returns the middle value for an odd-length window", () => {
+    expect(median([0, 1.54, 0])).toBe(0);
+  });
+
+  it("rejects an isolated spike (stopped vehicle stays 0)", () => {
+    // Real uzaktan.bag pattern: a lone non-zero spike inside a run of zeros.
+    expect(median([0, 0, 1.54, 0, 0])).toBe(0);
+  });
+
+  it("rejects an isolated dropout (moving vehicle keeps speed)", () => {
+    // Inverse: a lone zero inside a run of real readings is filtered out.
+    expect(median([1.54, 1.54, 0, 1.54, 1.54])).toBe(1.54);
+  });
+
+  it("follows a sustained change (real acceleration is accepted)", () => {
+    // Once the new value dominates the window, the median moves to it.
+    expect(median([0, 0, 1.54, 1.54, 1.54])).toBe(1.54);
+  });
+
+  it("averages the two middle values for an even-length window", () => {
+    expect(median([0, 1.54])).toBeCloseTo(0.77);
+  });
+
+  it("handles a single sample", () => {
+    expect(median([1.54])).toBe(1.54);
   });
 });
 

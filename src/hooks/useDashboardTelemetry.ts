@@ -8,6 +8,16 @@ const MAX_SERIES_POINTS = 80;
 const MAX_COCKPIT_EVENTS = 120;
 // Minimum ms between React state flushes for telemetry (targets ~30 fps UI updates)
 const TELEMETRY_FLUSH_MS = 33;
+// Median window for the CAN speed stream. The raw signal is salt-and-pepper
+// noisy (isolated single-frame spikes/dropouts at ~48 Hz); an odd 5-sample
+// median (~100 ms) rejects lone outliers without freezing on a stale value.
+const SPEED_WINDOW = 5;
+
+export function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
 
 export const emptyTelemetry: TelemetryState = {
   speed: 0,
@@ -53,6 +63,7 @@ export function useDashboardTelemetry() {
   const [cockpitEvents, setCockpitEvents] = useState<CockpitEvent[]>([]);
   const [series, setSeries] = useState(emptySeries);
   const nativeSpeedSeenRef = useRef(false);
+  const speedWindowRef = useRef<number[]>([]);
 
   // Batch buffer: accumulate patches between RAF ticks
   const pendingRef = useRef<PendingTelemetry[]>([]);
@@ -93,6 +104,16 @@ export function useDashboardTelemetry() {
           magneticField: patch.magneticField ? { ...next.magneticField, ...patch.magneticField } : next.magneticField,
           vehicle: { ...next.vehicle, ...vehiclePatch },
         };
+
+        // Median-smooth native speed to reject isolated CAN spikes/dropouts.
+        if (!isDerived && typeof patch.speed === "number") {
+          const win = speedWindowRef.current;
+          win.push(patch.speed);
+          if (win.length > SPEED_WINDOW) win.shift();
+          const smoothed = median(win);
+          merged.speed = smoothed;
+          merged.vehicle = { ...merged.vehicle, speedKmh: Number((smoothed * 3.6).toFixed(2)) };
+        }
 
         const accMag = vectorMagnitude(merged.acceleration);
         const oldAccMag = vectorMagnitude(next.acceleration);
@@ -189,6 +210,7 @@ export function useDashboardTelemetry() {
 
   const resetTelemetry = useCallback(() => {
     nativeSpeedSeenRef.current = false;
+    speedWindowRef.current = [];
     pendingRef.current = [];
     if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = undefined; }
     setTelemetry(emptyTelemetry);

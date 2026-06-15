@@ -36,10 +36,11 @@ describe("VelocityInformation", () => {
     expect(result.vehicle.speedKmh).toBeCloseTo(5.54);
   });
 
-  it("ignores zero/null velocity fields (CAN empty frames)", () => {
+  it("emits zero speed for a stopped vehicle (downstream median filter rejects noise)", () => {
+    // null → Number(null) = 0, so speed = 0 → a real "stopped" reading, not dropped.
     const result = norm("VelocityInformation", { VelocityMS: null, VelocityKMH: 0 });
-    // All zeros → nothing to write → normalizer returns undefined so state is unchanged.
-    expect(result).toBeUndefined();
+    expect(result.speed).toBe(0);
+    expect(result.vehicle.speedKmh).toBe(0);
   });
 });
 

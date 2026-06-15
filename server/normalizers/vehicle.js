@@ -32,8 +32,11 @@ export function normalizeVehicleTelemetry(message, type, topic) {
     // VelocityMS is raw integer, scale ×0.01 → m/s. VelocityKMH field has an
     // inconsistent scale in this CAN DBC, so we derive km/h from VelocityMS.
     const speed = scaledNumberOrUndefined(message.VelocityMS, 0.01);
-    // CAN bus sends empty frames (0) between real updates — ignore zeros.
-    if (speed !== undefined && speed > 0) {
+    // Emit zeros too — a stopped vehicle is a real reading. The CAN stream is
+    // salt-and-pepper noisy (isolated single-frame spikes/dropouts); the
+    // dashboard median-filters this stream so zeros don't freeze the gauge and
+    // lone spikes don't flicker it.
+    if (speed !== undefined) {
       telemetry.speed = speed;
       vehicle.speedKmh = Number((speed * 3.6).toFixed(2));
     }
