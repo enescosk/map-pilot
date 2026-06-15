@@ -25,7 +25,7 @@ import {
   selectStoredLivePoints,
   type LidarCloudState,
 } from "./utils/lidarProcessing";
-import { formatBoolean, formatDuration, formatGear, formatNumber, vectorMagnitude } from "./utils/telemetryFormatters";
+import { formatBoolean, formatGear, formatNumber, vectorMagnitude } from "./utils/telemetryFormatters";
 import { timeStringToSeconds } from "./utils/timeLabel";
 import "./App.css";
 
