@@ -35,7 +35,10 @@ function getTopicBuffer(topic: string) {
 }
 
 function appendToTopicBuffer(topic: string, pts: Point3D[]) {
-  let { buf, pos, fill } = getTopicBuffer(topic);
+  const state = getTopicBuffer(topic);
+  const buf = state.buf;
+  let pos = state.pos;
+  let fill = state.fill;
   for (const p of pts) {
     buf[pos] = p.x;
     buf[pos + 1] = p.y;

@@ -80,7 +80,6 @@ export function useDashboardTelemetry() {
     setTelemetry((prev) => {
       let next = prev;
       const newEvents: CockpitEvent[] = [];
-      let newSeries = { ...prev } as unknown as typeof series;
       let seriesChanged = false;
 
       for (const { patch, label, isDerived } of pending) {
@@ -166,7 +165,6 @@ export function useDashboardTelemetry() {
         }
         return seriesChanged ? updated : current;
       });
-      void newSeries; // suppress unused warning
 
       if (newEvents.length > 0) {
         setCockpitEvents((events) => {
@@ -216,7 +214,7 @@ export function useDashboardTelemetry() {
     setTelemetry(emptyTelemetry);
     setCockpitEvents([]);
     setSeries(emptySeries());
-  }, [flush]);
+  }, []);
 
   const decisionLogEntries: DecisionLogEntry[] = useMemo(() => (
     cockpitEvents.map((event) => ({

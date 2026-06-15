@@ -26,7 +26,6 @@ import {
   type LidarCloudState,
 } from "./utils/lidarProcessing";
 import { formatBoolean, formatGear, formatNumber, vectorMagnitude } from "./utils/telemetryFormatters";
-import { timeStringToSeconds } from "./utils/timeLabel";
 import "./App.css";
 
 const WS_URL =
@@ -81,7 +80,6 @@ const DEFAULT_LIDAR_CAMERA_POSITION = new THREE.Vector3(0, 25, 35);
 // Tighter height-color range: ground = blue, person height = green/yellow, canopy = red.
 const HEIGHT_COLOR_MIN = -1;
 const HEIGHT_COLOR_MAX = 5;
-const ENABLE_LIDAR_CONTOURS = false;
 
 function sourceModeInfo(source: string) {
   switch (source) {
@@ -596,7 +594,6 @@ function Lidar3D({
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const cloudRef = useRef<THREE.Points | null>(null);
-  const contourRef = useRef<THREE.LineSegments | null>(null);
   const vehicleRef = useRef<THREE.Group | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const pointTextureRef = useRef<THREE.Texture | undefined>(undefined);
@@ -1083,14 +1080,15 @@ function LidarWorkspace({
   // During the first 4 s, keep updating to the best topic so we settle on the
   // highest-priority / most-points source once all topics have sent their first frames.
   // After that window, only auto-select when nothing is active (manual picks are respected).
-  const lidarStartRef = useRef<number>(Date.now());
+  // Lazy state initializer (not useRef(Date.now())) keeps render pure.
+  const [lidarStartMs] = useState(() => Date.now());
   useEffect(() => {
     if (!bestTopic) return;
-    const elapsed = Date.now() - lidarStartRef.current;
+    const elapsed = Date.now() - lidarStartMs;
     if (elapsed < 4000 || !activeTopic) {
       setActiveTopic(bestTopic);
     }
-  }, [activeTopic, bestTopic, setActiveTopic]);
+  }, [activeTopic, bestTopic, setActiveTopic, lidarStartMs]);
   const activeData = pointClouds[activeTopic] || { points: [], mapPoints: [], frameId: "", resolvedFrame: "" };
   const points = cloudView === "map" && activeData.mapPoints.length > 0
     ? activeData.mapPoints
