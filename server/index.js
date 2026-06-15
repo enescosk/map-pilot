@@ -2,20 +2,16 @@
 //
 // Responsibilities are intentionally minimal:
 //   - boot the WebSocket server
-//   - construct the configured live/bag source
+//   - construct the configured live source (vehicle-ros / mqtt / ros / direct)
 //   - route every emitted envelope onto the telemetryBus
 //   - subscribe the WS server, MQTT publisher, and topic-health ticker to the bus
-//   - handle client command messages (start/stop/load-bag/seek/list-bags)
+//   - handle client command messages (start/stop/connect-source/control-command)
 //
 // All cleaning, validation, MQTT republish, and health logic lives in the
 // per-domain modules under server/{normalizers,services,transport}.
 
 import { WebSocketServer } from "ws";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 
-import { createBagPlaybackSource } from "./sources/bagPlaybackSource.js";
 import { createDirectLidarSource } from "./sources/directLidarSource.js";
 import { createMqttBridgeSource, MQTT_RAW_TOPICS, MQTT_URL } from "./sources/mqttBridgeSource.js";
 import { createRosBridgeLidarSource, ROS_SCAN_TOPIC, ROSBRIDGE_URL as ROS_LIDAR_BRIDGE_URL } from "./sources/rosBridgeLidarSource.js";
@@ -28,16 +24,13 @@ import { createMqttPublisher } from "./transport/mqttPublisher.js";
 import { createControlPublisher } from "./transport/controlPublisher.js";
 
 const WS_PORT = Number(process.env.WS_PORT || 4000);
-const LIDAR_SOURCE = process.env.LIDAR_SOURCE || "bag";
-const BAG_DIRECTORY = process.env.BAG_DIRECTORY || path.join(os.homedir(), "Desktop", "enes_ws", "bag");
-const DEFAULT_BAG_FILE_PATH = process.env.BAG_FILE_PATH || findBagFiles()[0]?.path || "";
+const LIDAR_SOURCE = process.env.LIDAR_SOURCE || "vehicle-ros";
 const MQTT_PUBLISH = process.env.MQTT_PUBLISH === "true";
 const AUTO_START_SOURCE =
   process.env.AUTO_START_SOURCE === "true" ||
   ["mqtt", "ros", "vehicle-ros"].includes(LIDAR_SOURCE);
 
 const wss = new WebSocketServer({ port: WS_PORT });
-let selectedBagPath = DEFAULT_BAG_FILE_PATH;
 let lidarSource;
 let latestTelemetryEnvelope; // cached for snapshot-on-connect
 
@@ -56,7 +49,6 @@ function sanitizeUrlForLog(value) {
 
 function sourceKind() {
   if (["vehicle-ros", "mqtt", "ros"].includes(LIDAR_SOURCE)) return "live";
-  if (LIDAR_SOURCE === "bag") return "offline/debug";
   if (LIDAR_SOURCE === "direct") return "bench";
   return "custom";
 }
@@ -75,12 +67,6 @@ function logStartupDiagnostics() {
   } else if (LIDAR_SOURCE === "mqtt") {
     console.log(`MQTT URL: ${sanitizeUrlForLog(MQTT_URL)}`);
     console.log(`MQTT raw topics: ${MQTT_RAW_TOPICS.join(", ")}`);
-  } else if (LIDAR_SOURCE === "bag") {
-    console.log("Bag playback auto-start: disabled unless AUTO_START_SOURCE=true or the UI sends Play");
-    console.log(`Bag directory: ${BAG_DIRECTORY}`);
-    if (selectedBagPath) {
-      console.log(`Selected bag: ${selectedBagPath}`);
-    }
   }
 
   if (mqttPublisher.enabled) {
@@ -166,9 +152,6 @@ topicHealthService.start();
 
 function createLidarSource(sourceOverride, rosbridgeUrlOverride, mqttUrlOverride) {
   const src = sourceOverride || LIDAR_SOURCE;
-  if (src === "bag") {
-    return createBagPlaybackSource({ emit: emitFromSource, filePath: selectedBagPath });
-  }
   if (src === "ros") {
     return createRosBridgeLidarSource({ emit: emitFromSource, url: rosbridgeUrlOverride });
   }
@@ -186,29 +169,6 @@ function setLidarSource(nextSource) {
     lidarSource.stop();
   }
   lidarSource = nextSource;
-}
-
-function findBagFiles() {
-  if (!fs.existsSync(BAG_DIRECTORY)) return [];
-  return fs
-    .readdirSync(BAG_DIRECTORY, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && /\.(bag|jsonl?|db3)$/i.test(entry.name))
-    .map((entry) => {
-      const filePath = path.join(BAG_DIRECTORY, entry.name);
-      const stats = fs.statSync(filePath);
-      return { name: entry.name, path: filePath, size: stats.size, modifiedAt: stats.mtimeMs };
-    })
-    .sort((left, right) => right.modifiedAt - left.modifiedAt);
-}
-
-function broadcastBagList(ws) {
-  const files = findBagFiles();
-  ws.send(JSON.stringify({
-    type: "bag-list",
-    files,
-    selectedPath: selectedBagPath || files[0]?.path || "",
-    directory: BAG_DIRECTORY,
-  }));
 }
 
 setLidarSource(createLidarSource());
@@ -238,9 +198,6 @@ wss.on("connection", (ws) => {
   //    from "backend never started".
   ws.send(JSON.stringify(topicHealthService.getSnapshot()));
 
-  // 5. Available bag files.
-  broadcastBagList(ws);
-
   ws.on("message", (message) => {
     try {
       const payload = JSON.parse(message.toString());
@@ -253,38 +210,9 @@ wss.on("connection", (ws) => {
         lidarSource?.stop();
       }
 
-      if (payload.type === "list-bags") {
-        broadcastBagList(ws);
-      }
-
-      if (payload.type === "load-bag" && typeof payload.path === "string") {
-        const requestedPath = path.resolve(payload.path);
-        const resolvedBagDir = path.resolve(BAG_DIRECTORY);
-        if (!requestedPath.startsWith(resolvedBagDir + path.sep) && requestedPath !== resolvedBagDir) {
-          ws.send(JSON.stringify({ type: "backend-error", message: "Bag file must be inside the bag directory" }));
-          return;
-        }
-        if (!fs.existsSync(requestedPath)) {
-          ws.send(JSON.stringify({ type: "backend-error", message: `Bag file not found: ${requestedPath}` }));
-          return;
-        }
-        selectedBagPath = requestedPath;
-        latestTelemetryEnvelope = undefined;
-        telemetryStore.reset();
-        setLidarSource(createLidarSource());
-        ws.send(JSON.stringify({ type: "reset-playback", path: selectedBagPath }));
-        broadcastBagList(ws);
-        ws.send(JSON.stringify(lidarSource.getStatus()));
-        lidarSource.start();
-      }
-
-      if (payload.type === "seek-playback" && typeof lidarSource?.seek === "function") {
-        lidarSource.seek(Number(payload.ratio || 0));
-      }
-
       if (payload.type === "connect-source") {
         const { source, rosbridgeUrl, mqttUrl } = payload;
-        const allowed = ["vehicle-ros", "mqtt", "bag", "ros"];
+        const allowed = ["vehicle-ros", "mqtt", "ros"];
         if (!allowed.includes(source)) {
           ws.send(JSON.stringify({ type: "backend-error", message: `Unknown source: ${source}` }));
           return;
