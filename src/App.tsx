@@ -6,13 +6,12 @@ import ControlPanel from "./components/ControlPanel";
 import ConnectionPanel from "./components/ConnectionPanel";
 import DecisionLogPanel from "./components/DecisionLogPanel";
 import TopicHealthStrip from "./components/TopicHealthStrip";
-import { useBagPlayback } from "./hooks/useBagPlayback";
 import { useCameraFeed } from "./hooks/useCameraFeed";
 import { useDashboardTelemetry } from "./hooks/useDashboardTelemetry";
 import { useLiveTelemetry } from "./hooks/useLiveTelemetry";
 import { usePointCloudBuffer, type PendingPointCloudPacket } from "./hooks/usePointCloudBuffer";
 import { useTopicHealth } from "./hooks/useTopicHealth";
-import type { BagFileOption, BagStatus, BagTopicSummary, CameraFrameMessage, CameraStatus, CameraStreamMessage, LatestFrame, LidarReading, LiveMessage, Point3D, TelemetryMessage } from "./types/liveMessages";
+import type { CameraFrameMessage, CameraStatus, CameraStreamMessage, LatestFrame, LidarReading, LiveMessage, Point3D, TelemetryMessage } from "./types/liveMessages";
 import type { GpsFix, SeriesPoint, TelemetryState, Vector3 } from "./types/telemetry";
 import {
   chooseBestPointCloudTopic,
@@ -26,7 +25,7 @@ import {
   selectStoredLivePoints,
   type LidarCloudState,
 } from "./utils/lidarProcessing";
-import { formatBoolean, formatDuration, formatFileSize, formatGear, formatNumber, vectorMagnitude } from "./utils/telemetryFormatters";
+import { formatBoolean, formatDuration, formatGear, formatNumber, vectorMagnitude } from "./utils/telemetryFormatters";
 import { timeStringToSeconds } from "./utils/timeLabel";
 import "./App.css";
 
@@ -63,8 +62,6 @@ type GpsTrailPoint = {
   longitude: number;
 };
 
-export type BagFrame = LatestFrame;
-
 type LidarMode = "2d" | "3d";
 type LidarColorMode = "intensity" | "height" | "distance";
 type LidarDebugStats = {
@@ -96,9 +93,6 @@ function sourceModeInfo(source: string) {
       return { label: "ros", kind: "Legacy live ROS", waiting: "Waiting for ROS scan topic..." };
     case "direct-serial":
       return { label: "direct", kind: "Bench live", waiting: "Waiting for direct LiDAR scan..." };
-    case "bag-playback":
-    case "rosbag-playback":
-      return { label: "bag-playback", kind: "Offline/debug", waiting: "Press Play to start offline bag playback." };
     default:
       return { label: source || "none", kind: "Source pending", waiting: "Waiting for backend source status..." };
   }
@@ -1231,24 +1225,15 @@ function MapPanel({ gps, speed }: { gps: GpsFix; speed: number }) {
   );
 }
 
-function TopicPanel({ topics, latest }: { topics: BagTopicSummary[]; latest?: LatestFrame }) {
+function LatestFramePanel({ latest }: { latest?: LatestFrame }) {
   return (
     <section className="workspace-panel topic-workspace">
       <div className="panel-titlebar">
-        <span>Topics</span>
-        <strong>{topics.length}</strong>
-      </div>
-      <div className="topic-scroll">
-        {topics.map((topic) => (
-          <div className="topic-item" key={`${topic.topic}-${topic.type}`}>
-            <strong>{topic.topic}</strong>
-            <span>{topic.type}</span>
-            <em>{topic.count.toLocaleString()} msg</em>
-          </div>
-        ))}
+        <span>Son Mesaj</span>
+        <strong>{latest?.messageType || "—"}</strong>
       </div>
       <div className="latest-payload">
-        <span>{latest?.topic || "Waiting for next message..."}</span>
+        <span>{latest?.topic || "Veri bekleniyor..."}</span>
         <code>{latest?.preview || ""}</code>
       </div>
     </section>
@@ -1262,15 +1247,7 @@ function App() {
   const [lidarReadings, setLidarReadings] = useState<LidarReading[]>([]);
   const [pointClouds, setPointClouds] = useState<Record<string, LidarCloudState>>({});
   const [activePointCloudTopic, setActivePointCloudTopic] = useState<string>("");
-  const [bagStatus, setBagStatus] = useState<BagStatus>({
-    connected: false,
-    playing: false,
-    source: "none",
-    path: "",
-    frameCount: 0,
-    cursor: 0,
-    topics: [],
-  });
+  const [sourceConnected, setSourceConnected] = useState(false);
   const [latestFrame, setLatestFrameState] = useState<LatestFrame>();
   // Throttle latestFrame to ≤10 fps. Topic panel doesn't need 100+ updates/sec.
   const latestFrameRef = useRef<LatestFrame | undefined>(undefined);
@@ -1286,16 +1263,12 @@ function App() {
   useEffect(() => () => {
     if (latestFrameTimerRef.current) window.clearTimeout(latestFrameTimerRef.current);
   }, []);
-  const [pendingSeekRatio, setPendingSeekRatio] = useState<number | undefined>();
-  const [bagFiles, setBagFiles] = useState<BagFileOption[]>([]);
-  const [selectedBagPath, setSelectedBagPath] = useState("");
   const pointCloudsRef = useRef<Record<string, LidarCloudState>>({});
   const { topicHealth, handleTopicHealthMessage } = useTopicHealth();
   const { camera, resetCamera, handleCameraFrame, handleCameraStream } = useCameraFeed();
   const {
     telemetry,
     series,
-    cockpitEvents,
     decisionLogEntries,
     handleTelemetryMessage,
     resetTelemetry,
@@ -1356,9 +1329,8 @@ function App() {
     onFlush: handlePointCloudFlush,
   });
 
-  const resetPlaybackState = useCallback(() => {
+  const resetStreamState = useCallback(() => {
     clearPointCloudBuffer();
-    setPendingSeekRatio(undefined);
     setLidarReadings([]);
     setPointClouds({});
     setActivePointCloudTopic("");
@@ -1373,33 +1345,15 @@ function App() {
           return;
         }
 
-        if (packet.type === "bag-list") {
-          const files = Array.isArray(packet.files) ? packet.files : [];
-          setBagFiles(files);
-          setSelectedBagPath(packet.selectedPath || files[0]?.path || "");
-        }
-
-        if (packet.type === "reset-playback") {
-          resetPlaybackState();
-          setSelectedBagPath(packet.path || "");
-        }
-
         if (packet.type === "source-changed") {
           setBackendSource(packet.source || "unknown");
           setBackendError(null);
-          resetPlaybackState();
+          resetStreamState();
         }
 
         if (packet.type === "status") {
           setBackendSource(packet.source || "unknown");
-          if (packet.source === "mqtt" || packet.source === "vehicle-ros") {
-            setBagStatus((prev) => ({
-              ...prev,
-              connected: Boolean(packet.connected),
-              playing: Boolean(packet.connected),
-              source: packet.source || "unknown",
-            }));
-          }
+          setSourceConnected(Boolean(packet.connected));
         }
 
         // scan and point-cloud are handled by the Web Worker (see handleWorkerMessage)
@@ -1435,30 +1389,6 @@ function App() {
           });
         }
 
-        if (packet.type === "bag-frame") {
-          setLatestFrame({
-            topic: packet.topic || "unknown",
-            time: packet.time,
-            messageType: packet.messageType || "unknown",
-            preview: "",
-          });
-        }
-
-        if (packet.type === "bag-status") {
-          setBagStatus({
-            connected: Boolean(packet.connected),
-            playing: Boolean(packet.playing),
-            source: packet.source || "bag-playback",
-            path: packet.path || "",
-            frameCount: Number(packet.frameCount || 0),
-            cursor: Number(packet.cursor || 0),
-            topics: Array.isArray(packet.topics) ? packet.topics : [],
-            currentTime: packet.currentTime || "",
-            startTime: packet.startTime || "",
-            endTime: packet.endTime || "",
-            durationSeconds: Number(packet.durationSeconds || 0),
-          });
-        }
         if (packet.type === "topic-health") {
           handleTopicHealthMessage(packet);
         }
@@ -1467,7 +1397,7 @@ function App() {
     handleCameraStream,
     handleTelemetryMessage,
     handleTopicHealthMessage,
-    resetPlaybackState,
+    resetStreamState,
   ]);
 
   // Worker delivers pre-processed scan-ready / cloud-ready results (lidar work is off main thread)
@@ -1509,74 +1439,30 @@ function App() {
   useEffect(() => {
     if (backendConnected) {
       sendMessage({ type: "start-lidar" });
-      sendMessage({ type: "list-bags" });
     }
   }, [backendConnected, sendMessage]);
 
   const isLiveSource = backendSource === "mqtt" || backendSource === "vehicle-ros" || backendSource === "rosbridge" || backendSource === "direct-serial";
-  const bagName = useMemo(() => {
-    if (isLiveSource) return "Canlı Araç";
-    return bagStatus.path.split("/").at(-1) || "—";
-  }, [bagStatus.path, isLiveSource]);
-  const sourceMode = sourceModeInfo(backendSource || bagStatus.source);
+  const sourceTitle = isLiveSource ? "Canlı Araç" : "Bağlı değil";
+  const sourceMode = sourceModeInfo(backendSource);
   const sourceHealth =
     topicHealth.sources[backendSource] ||
-    topicHealth.sources[bagStatus.source] ||
     topicHealth.sources[sourceMode.label];
-  const sourceIsConnected = Boolean(sourceHealth?.connected ?? (isLiveSource ? bagStatus.connected : backendConnected));
+  const sourceIsConnected = Boolean(sourceHealth?.connected ?? sourceConnected);
   const sourceHasStaleTopics = Object.values(topicHealth.topics || {}).some((topic) => topic.isStale);
   const sourceStatusText = sourceHealthLabel(sourceIsConnected, isLiveSource, sourceHasStaleTopics);
 
-  function loadBag(path: string) {
-    if (path && sendMessage({ type: "load-bag", path })) {
-      setSelectedBagPath(path);
-    }
-  }
-
-  function connectSource(source: "vehicle-ros" | "mqtt" | "bag", rosbridgeUrl: string, mqttUrl: string) {
+  function connectSource(source: "vehicle-ros" | "mqtt", rosbridgeUrl: string, mqttUrl: string) {
     sendMessage({ type: "connect-source", source, rosbridgeUrl, mqttUrl });
   }
-
-  const {
-    currentSeconds,
-    durationSeconds,
-    playbackRatio,
-    frameLabel,
-    sendPlaybackCommand,
-    seekPlayback,
-    seekPlaybackBySeconds,
-    previewSeek,
-    commitPreviewSeek,
-  } = useBagPlayback({
-    bagStatus,
-    pendingSeekRatio,
-    isLiveSource,
-    sendMessage,
-    setPendingSeekRatio,
-    onBeforeSeek: resetPlaybackState,
-  });
 
   return (
     <main className="app-shell">
       <header className="top-bar">
         <div>
           <span className="app-kicker">MapPilot Cockpit</span>
-          {!isLiveSource && <h1>{bagName}</h1>}
+          <h1>{sourceTitle}</h1>
         </div>
-        {!isLiveSource && (
-          <label className="bag-picker">
-            <span>Bag</span>
-            <select value={selectedBagPath} onChange={(event) => loadBag(event.currentTarget.value)}>
-              {bagFiles.length === 0 ? (
-                <option value="">No .bag files found</option>
-              ) : bagFiles.map((file) => (
-                <option key={file.path} value={file.path}>
-                  {file.name} ({formatFileSize(file.size)})
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
         <div className="mode-switcher">
           <button type="button" className={mode === "perception" ? "active" : ""} onClick={() => setMode("perception")}>Cockpit</button>
           <button type="button" className={mode === "debug" ? "active" : ""} onClick={() => setMode("debug")}>LiDAR</button>
@@ -1594,9 +1480,6 @@ function App() {
           </span>
           <span className={sourceIsConnected && !sourceHasStaleTopics ? "status-pill good" : sourceHasStaleTopics ? "status-pill bad" : "status-pill muted"}>
             {sourceStatusText}
-          </span>
-          <span className={bagStatus.playing ? "status-pill good" : "status-pill muted"}>
-            {bagStatus.playing ? "Playing" : "Paused"}
           </span>
         </div>
       </header>
@@ -1619,14 +1502,14 @@ function App() {
           />
           <ControlPanel
             isMapping={false}
-            lidarConnected={bagStatus.playing}
+            lidarConnected={sourceConnected}
             backendConnected={backendConnected}
             onStartMapping={() => {}}
             onStopMapping={() => {}}
-            onStartLidar={() => sendPlaybackCommand("start-lidar")}
-            onStopLidar={() => sendPlaybackCommand("stop-lidar")}
+            onStartLidar={() => sendMessage({ type: "start-lidar" })}
+            onStopLidar={() => sendMessage({ type: "stop-lidar" })}
           />
-          <TopicPanel topics={bagStatus.topics} latest={latestFrame} />
+          <LatestFramePanel latest={latestFrame} />
         </aside>
 
         {mode === "debug" ? (
