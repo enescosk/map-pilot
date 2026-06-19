@@ -23,6 +23,7 @@ import {
   selectStoredLivePoints,
   type LidarCloudState,
 } from "./utils/lidarProcessing";
+import { sourceHealthLabel, sourceModeInfo } from "./utils/dashboardHelpers";
 import { formatNumber, vectorMagnitude } from "./utils/telemetryFormatters";
 import "./App.css";
 
@@ -53,27 +54,6 @@ export type SystemHealthItem = {
   isActive: boolean;
   detail: string;
 };
-
-function sourceModeInfo(source: string) {
-  switch (source) {
-    case "vehicle-ros":
-      return { label: "vehicle-ros", kind: "Live ROS", waiting: "Waiting for live ROS topics..." };
-    case "mqtt":
-      return { label: "mqtt", kind: "Live MQTT", waiting: "Waiting for MQTT topics..." };
-    case "rosbridge":
-      return { label: "ros", kind: "Legacy live ROS", waiting: "Waiting for ROS scan topic..." };
-    case "direct-serial":
-      return { label: "direct", kind: "Bench live", waiting: "Waiting for direct LiDAR scan..." };
-    default:
-      return { label: source || "none", kind: "Source pending", waiting: "Waiting for backend source status..." };
-  }
-}
-
-function sourceHealthLabel(connected: boolean, isLiveSource: boolean, isStale: boolean) {
-  if (isStale) return "topic stale";
-  if (!isLiveSource) return connected ? "ready" : "idle";
-  return connected ? "connected" : "disconnected";
-}
 
 function LatestFramePanel({ latest }: { latest?: LatestFrame }) {
   return (

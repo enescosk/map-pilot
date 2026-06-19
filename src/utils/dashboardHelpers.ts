@@ -33,3 +33,24 @@ export function createPointSpriteTexture() {
   texture.needsUpdate = true;
   return texture;
 }
+
+export function sourceModeInfo(source: string) {
+  switch (source) {
+    case "vehicle-ros":
+      return { label: "vehicle-ros", kind: "Live ROS", waiting: "Waiting for live ROS topics..." };
+    case "mqtt":
+      return { label: "mqtt", kind: "Live MQTT", waiting: "Waiting for MQTT topics..." };
+    case "rosbridge":
+      return { label: "ros", kind: "Legacy live ROS", waiting: "Waiting for ROS scan topic..." };
+    case "direct-serial":
+      return { label: "direct", kind: "Bench live", waiting: "Waiting for direct LiDAR scan..." };
+    default:
+      return { label: source || "none", kind: "Source pending", waiting: "Waiting for backend source status..." };
+  }
+}
+
+export function sourceHealthLabel(connected: boolean, isLiveSource: boolean, isStale: boolean) {
+  if (isStale) return "topic stale";
+  if (!isLiveSource) return connected ? "ready" : "idle";
+  return connected ? "connected" : "disconnected";
+}
