@@ -9,13 +9,14 @@ import TopicHealthStrip from "./components/TopicHealthStrip";
 import { SparkChart } from "./components/SparkChart";
 import { SpeedGauge } from "./components/SpeedGauge";
 import { VehicleTopView } from "./components/VehicleTopView";
+import { MapPanel } from "./components/MapPanel";
 import { useCameraFeed } from "./hooks/useCameraFeed";
 import { useDashboardTelemetry } from "./hooks/useDashboardTelemetry";
 import { useLiveTelemetry } from "./hooks/useLiveTelemetry";
 import { usePointCloudBuffer, type PendingPointCloudPacket } from "./hooks/usePointCloudBuffer";
 import { useTopicHealth } from "./hooks/useTopicHealth";
 import type { CameraFrameMessage, CameraStatus, CameraStreamMessage, LatestFrame, LidarReading, LiveMessage, Point3D, TelemetryMessage } from "./types/liveMessages";
-import type { GpsFix, TelemetryState, Vector3 } from "./types/telemetry";
+import type { TelemetryState, Vector3 } from "./types/telemetry";
 import {
   chooseBestPointCloudTopic,
   isMeaningfulDisplayPoint,
@@ -57,11 +58,6 @@ export type SystemHealthItem = {
   name: string;
   isActive: boolean;
   detail: string;
-};
-
-type GpsTrailPoint = {
-  latitude: number;
-  longitude: number;
 };
 
 type LidarMode = "2d" | "3d";
@@ -1061,41 +1057,6 @@ function LidarWorkspace({
         <span>{activeData.points.length.toLocaleString()} live pts</span>
         <span>{activeData.mapPoints.length.toLocaleString()} map pts</span>
         <span>{mode.toUpperCase()} {cloudView}</span>
-      </div>
-    </section>
-  );
-}
-
-function MapPanel({ gps, speed }: { gps: GpsFix; speed: number }) {
-  const lat = Number(gps.latitude);
-  const lon = Number(gps.longitude);
-  const hasFix = Number.isFinite(lat) && Number.isFinite(lon);
-  const mapCenter = useMemo<GpsTrailPoint | undefined>(() => {
-    if (!hasFix) {
-      return undefined;
-    }
-
-    const snap = 0.0025;
-    return {
-      latitude: Math.round(lat / snap) * snap,
-      longitude: Math.round(lon / snap) * snap,
-    };
-  }, [hasFix, lat, lon]);
-
-  const mapSrc = mapCenter
-    ? `https://www.openstreetmap.org/export/embed.html?bbox=${mapCenter.longitude - 0.006}%2C${mapCenter.latitude - 0.004}%2C${mapCenter.longitude + 0.006}%2C${mapCenter.latitude + 0.004}&layer=mapnik&marker=${mapCenter.latitude}%2C${mapCenter.longitude}`
-    : "";
-
-  return (
-    <section className="workspace-panel map-workspace">
-      <div className="panel-titlebar">
-        <span>Map</span>
-        <strong>{hasFix ? `${formatNumber(lat, 5)}, ${formatNumber(lon, 5)}` : "No fix"}</strong>
-      </div>
-      {mapSrc ? <iframe title="OpenStreetMap vehicle position" src={mapSrc} /> : <div className="empty-state">Waiting for GPS...</div>}
-      <div className="metric-strip">
-        <span>Speed {formatNumber(speed)} m/s</span>
-        <span>Alt {formatNumber(gps.altitude)} m</span>
       </div>
     </section>
   );

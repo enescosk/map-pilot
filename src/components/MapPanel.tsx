@@ -1,33 +1,43 @@
-import type { MapSummary } from "../App";
+import { useMemo } from "react";
+import type { GpsFix } from "../types/telemetry";
+import { formatNumber } from "../utils/telemetryFormatters";
 
-type MapPanelProps = {
-  mapSummary: MapSummary;
-  isMapping: boolean;
+type GpsTrailPoint = {
+  latitude: number;
+  longitude: number;
 };
 
-function MapPanel({ mapSummary, isMapping }: MapPanelProps) {
+export function MapPanel({ gps, speed }: { gps: GpsFix; speed: number }) {
+  const lat = Number(gps.latitude);
+  const lon = Number(gps.longitude);
+  const hasFix = Number.isFinite(lat) && Number.isFinite(lon);
+  const mapCenter = useMemo<GpsTrailPoint | undefined>(() => {
+    if (!hasFix) {
+      return undefined;
+    }
+
+    const snap = 0.0025;
+    return {
+      latitude: Math.round(lat / snap) * snap,
+      longitude: Math.round(lon / snap) * snap,
+    };
+  }, [hasFix, lat, lon]);
+
+  const mapSrc = mapCenter
+    ? `https://www.openstreetmap.org/export/embed.html?bbox=${mapCenter.longitude - 0.006}%2C${mapCenter.latitude - 0.004}%2C${mapCenter.longitude + 0.006}%2C${mapCenter.latitude + 0.004}&layer=mapnik&marker=${mapCenter.latitude}%2C${mapCenter.longitude}`
+    : "";
+
   return (
-    <article className="panel map-panel">
-      <div className="panel-heading">
-        <p className="panel-label">Map</p>
-        <h2>Coverage</h2>
+    <section className="workspace-panel map-workspace">
+      <div className="panel-titlebar">
+        <span>Map</span>
+        <strong>{hasFix ? `${formatNumber(lat, 5)}, ${formatNumber(lon, 5)}` : "No fix"}</strong>
       </div>
-
-      <div className="map-preview" aria-label="Occupancy map preview">
-        <div className="map-room large" />
-        <div className="map-room medium" />
-        <div className="map-room small" />
-        <div className={isMapping ? "robot-marker scanning" : "robot-marker"} />
+      {mapSrc ? <iframe title="OpenStreetMap vehicle position" src={mapSrc} /> : <div className="empty-state">Waiting for GPS...</div>}
+      <div className="metric-strip">
+        <span>Speed {formatNumber(speed)} m/s</span>
+        <span>Alt {formatNumber(gps.altitude)} m</span>
       </div>
-
-      <div className="map-metrics">
-        <span>{mapSummary.areaCovered} m2 covered</span>
-        <span>{mapSummary.roomsDetected} rooms</span>
-        <span>Loop closure: {mapSummary.loopClosure}</span>
-        <span>Updated: {mapSummary.lastUpdated}</span>
-      </div>
-    </article>
+    </section>
   );
 }
-
-export default MapPanel;
