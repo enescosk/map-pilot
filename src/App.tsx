@@ -6,13 +6,14 @@ import ControlPanel from "./components/ControlPanel";
 import ConnectionPanel from "./components/ConnectionPanel";
 import DecisionLogPanel from "./components/DecisionLogPanel";
 import TopicHealthStrip from "./components/TopicHealthStrip";
+import { SparkChart } from "./components/SparkChart";
 import { useCameraFeed } from "./hooks/useCameraFeed";
 import { useDashboardTelemetry } from "./hooks/useDashboardTelemetry";
 import { useLiveTelemetry } from "./hooks/useLiveTelemetry";
 import { usePointCloudBuffer, type PendingPointCloudPacket } from "./hooks/usePointCloudBuffer";
 import { useTopicHealth } from "./hooks/useTopicHealth";
 import type { CameraFrameMessage, CameraStatus, CameraStreamMessage, LatestFrame, LidarReading, LiveMessage, Point3D, TelemetryMessage } from "./types/liveMessages";
-import type { GpsFix, SeriesPoint, TelemetryState, Vector3 } from "./types/telemetry";
+import type { GpsFix, TelemetryState, Vector3 } from "./types/telemetry";
 import {
   chooseBestPointCloudTopic,
   isMeaningfulDisplayPoint,
@@ -134,38 +135,6 @@ function createPointSpriteTexture() {
   const texture = new THREE.CanvasTexture(canvas);
   texture.needsUpdate = true;
   return texture;
-}
-
-function SparkChart({ title, value, unit, data, color }: {
-  title: string;
-  value: string;
-  unit: string;
-  data: SeriesPoint[];
-  color: string;
-}) {
-  const width = 320;
-  const height = 106;
-  const max = Math.max(...data.map((point) => Math.abs(point.value)), 1);
-  const points = data
-    .map((point, index) => {
-      const x = data.length <= 1 ? 0 : (index / (data.length - 1)) * width;
-      const y = height - (Math.abs(point.value) / max) * (height - 18) - 9;
-      return `${x},${y}`;
-    })
-    .join(" ");
-
-  return (
-    <section className="chart-panel">
-      <div className="panel-topline">
-        <span>{title}</span>
-        <strong>{value} {unit}</strong>
-      </div>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${title} chart`}>
-        <path d="M0 20 H320 M0 53 H320 M0 86 H320" className="chart-grid" />
-        <polyline points={points} fill="none" stroke={color} strokeWidth="2.5" />
-      </svg>
-    </section>
-  );
 }
 
 function SpeedGauge({ speedKmh, speedMs }: { speedKmh?: number; speedMs: number }) {
