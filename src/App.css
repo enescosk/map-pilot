@@ -428,9 +428,10 @@ button:hover {
   grid-template-rows: auto auto auto 1fr;
 }
 
-/* Cockpit center: vertical stack of cockpit + map + charts */
+/* Cockpit center: vertical stack of cockpit + map, more room since charts moved to hud-right */
 .hud-center--cockpit {
-  grid-template-rows: minmax(0, 1.4fr) minmax(0, 1fr) auto;
+  grid-template-rows: minmax(360px, 1.4fr) minmax(0, 1fr);
+  overflow-y: auto;
 }
 
 .hud-center--lidar {
@@ -440,6 +441,11 @@ button:hover {
 /* Camera gets the lion's share; decision log gets just a peek (~160px). */
 .hud-right {
   grid-template-rows: minmax(0, 1fr) minmax(140px, 200px);
+}
+
+/* Cockpit mode: camera on top, charts take a peek strip at the bottom. */
+.hud-right--cockpit {
+  grid-template-rows: minmax(0, 1fr) minmax(120px, 160px);
 }
 
 /* Compact decision log — dense list, scrolls internally */
@@ -966,7 +972,7 @@ button:hover {
   display: grid;
   gap: 14px;
   grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.4fr);
-  grid-template-rows: minmax(180px, auto) minmax(0, 1fr);
+  grid-template-rows: minmax(120px, auto) minmax(200px, 1fr);
   min-height: 0;
   padding: 14px;
   flex: 1;
@@ -1424,7 +1430,7 @@ button:hover {
 }
 
 .cockpit-metric > em {
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-family: var(--mono);
   font-size: 0.66rem;
   font-style: normal;

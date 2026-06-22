@@ -330,15 +330,17 @@ function App() {
             connected={backendConnected}
             backendError={backendError}
           />
-          <ControlPanel
-            isMapping={false}
-            lidarConnected={sourceConnected}
-            backendConnected={backendConnected}
-            onStartMapping={() => {}}
-            onStopMapping={() => {}}
-            onStartLidar={() => sendMessage({ type: "start-lidar" })}
-            onStopLidar={() => sendMessage({ type: "stop-lidar" })}
-          />
+          {mode === "debug" && (
+            <ControlPanel
+              isMapping={false}
+              lidarConnected={sourceConnected}
+              backendConnected={backendConnected}
+              onStartMapping={() => {}}
+              onStopMapping={() => {}}
+              onStartLidar={() => sendMessage({ type: "start-lidar" })}
+              onStopLidar={() => sendMessage({ type: "stop-lidar" })}
+            />
+          )}
           <LatestFramePanel latest={latestFrame} />
         </aside>
 
@@ -358,6 +360,13 @@ function App() {
           <section className="hud-center hud-center--cockpit">
             <VehicleCockpit telemetry={telemetry} time={latestFrame?.time} />
             <MapPanel gps={telemetry.gps} speed={telemetry.speed} />
+          </section>
+        )}
+
+        <aside className={mode === "debug" ? "hud-right" : "hud-right hud-right--cockpit"}>
+          <CameraViewer camera={camera} />
+          {mode === "debug" && <DecisionLogPanel entries={decisionLogEntries} />}
+          {mode !== "debug" && (
             <div className="cockpit-charts">
               <SparkChart
                 title="/imu/acceleration"
@@ -374,12 +383,7 @@ function App() {
                 color="#fbbf24"
               />
             </div>
-          </section>
-        )}
-
-        <aside className="hud-right">
-          <CameraViewer camera={camera} />
-          <DecisionLogPanel entries={decisionLogEntries} />
+          )}
         </aside>
       </section>
 

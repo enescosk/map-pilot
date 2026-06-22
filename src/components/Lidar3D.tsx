@@ -262,16 +262,16 @@ function Lidar3D({
     // Direction labels — FRONT/BACK/LEFT/RIGHT, aligned with ROS axes.
     // ROS x forward → Three.js -Z; ROS y left → Three.js -X.
     const frontLabel = makeLabelSprite("FRONT", "#fbbf24");
-    frontLabel.position.set(0, 1.2, -8);
+    frontLabel.position.set(0, 1.2, -6);
     scene.add(frontLabel);
     const backLabel = makeLabelSprite("BACK", "#64748b");
-    backLabel.position.set(0, 1.2, 8);
+    backLabel.position.set(0, 1.2, 6);
     scene.add(backLabel);
     const leftLabel = makeLabelSprite("LEFT", "#94a3b8");
-    leftLabel.position.set(-8, 1.2, 0);
+    leftLabel.position.set(-5, 1.2, 0);
     scene.add(leftLabel);
     const rightLabel = makeLabelSprite("RIGHT", "#94a3b8");
-    rightLabel.position.set(8, 1.2, 0);
+    rightLabel.position.set(5, 1.2, 0);
     scene.add(rightLabel);
 
     // Bright forward-direction arrow on the ground.

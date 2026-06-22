@@ -32,12 +32,6 @@ export function VehicleTopView({ vehicle }: { vehicle: TelemetryState["vehicle"]
           </div>
         </div>
       </div>
-      <div className="vehicle-light-strip">
-        <span className={vehicle.leftSignal || hazardActive ? "lamp active amber" : "lamp amber"}>LEFT</span>
-        <span className={brakeActive ? "lamp active red" : "lamp red"}>BRAKE</span>
-        <span className={hazardActive ? "lamp active red" : "lamp red"}>HAZARD</span>
-        <span className={vehicle.rightSignal || hazardActive ? "lamp active amber" : "lamp amber"}>RIGHT</span>
-      </div>
     </section>
   );
 }
