@@ -133,6 +133,8 @@ function App() {
           resolvedFrame: packet.resolvedFrame || previous.resolvedFrame || "",
           lastTime: packet.time || previous.lastTime,
           filterVersion: LIDAR_FILTER_VERSION,
+          // Real per-frame density for topic ranking (not the accumulated history).
+          pointCount: packet.frameCount ?? previous.pointCount,
         };
       }
 
@@ -251,10 +253,10 @@ function App() {
     }
 
     if (type === "cloud-ready") {
-      const { topic, renderable, time, frameId, resolvedFrame } = ev.data as {
-        topic: string; renderable: Point3D[]; time: string; frameId: string; resolvedFrame: string;
+      const { topic, renderable, frameCount, time, frameId, resolvedFrame } = ev.data as {
+        topic: string; renderable: Point3D[]; frameCount: number; time: string; frameId: string; resolvedFrame: string;
       };
-      enqueuePointCloud({ topic, points: renderable, frameId, resolvedFrame, time });
+      enqueuePointCloud({ topic, points: renderable, frameCount, frameId, resolvedFrame, time });
       setActivePointCloudTopic((prev) => prev || topic);
       setLatestFrame({ topic, time, messageType: "PointCloud2", preview: `${renderable.length} sampled 3D points` });
     }

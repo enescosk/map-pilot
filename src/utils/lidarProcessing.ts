@@ -354,7 +354,13 @@ function isPointCloudTopic(topic: string) {
 
 function pointCloudTopicPriority(topic: string) {
   const lower = topic.toLowerCase();
-  if (lower.includes("helios") || lower.includes("rslidar") || lower.includes("m1")) {
+  // Secondary / auxiliary sensors (e.g. /m1/rslidar_points is a tilted side
+  // unit in a non-base_link frame) rank below the primary roof cloud so
+  // auto-selection lands on the clean, forward-facing /rslidar_points by default.
+  if (lower.includes("/m1") || lower.includes("m1/")) {
+    return 2;
+  }
+  if (lower.includes("helios") || lower.includes("rslidar")) {
     return 3;
   }
   if (lower.includes("laser") || lower.includes("lidar")) {
@@ -366,17 +372,31 @@ function pointCloudTopicPriority(topic: string) {
   return 0;
 }
 
-// Effective point count for ranking: rendered points if we have them, else the
-// raw count reported for a skipped (non-active) topic.
+// Effective point count for ranking. Prefer the real per-frame count
+// (`pointCount`) — it reflects a topic's true density. `points.length` is the
+// ACCUMULATED history, so a near-empty topic that happened to be active for a
+// while looks falsely dense; only fall back to it when no frame count is known.
 function cloudPointCount(state: LidarCloudState) {
-  return state.points.length > 0 ? state.points.length : (state.pointCount || 0);
+  return state.pointCount ?? (state.points.length > 0 ? state.points.length : 0);
 }
 
+// Topics that emit only a handful of points per frame (e.g. the vehicle's
+// /m1/rslidar_points sends ~5 pts) are effectively empty and must never win
+// auto-selection over a real cloud like /rslidar_points (~136k pts). They stay
+// in the picker so a user can still inspect them manually.
+const MIN_AUTO_SELECT_POINTS = 200;
+
 export function chooseBestPointCloudTopic(pointClouds: Record<string, LidarCloudState>) {
-  return Object.entries(pointClouds)
+  const candidates = Object.entries(pointClouds)
     .filter(([topic, state]) => isPointCloudTopic(topic) && cloudPointCount(state) > 0)
     .sort(([leftTopic, left], [rightTopic, right]) => {
+      // Prefer clouds with a meaningful number of points first — a dense cloud
+      // always beats a near-empty one regardless of topic-name priority.
+      const leftDense = cloudPointCount(left) >= MIN_AUTO_SELECT_POINTS ? 1 : 0;
+      const rightDense = cloudPointCount(right) >= MIN_AUTO_SELECT_POINTS ? 1 : 0;
+      if (leftDense !== rightDense) return rightDense - leftDense;
       const priorityDelta = pointCloudTopicPriority(rightTopic) - pointCloudTopicPriority(leftTopic);
       return priorityDelta || cloudPointCount(right) - cloudPointCount(left);
-    })[0]?.[0] || "";
+    });
+  return candidates[0]?.[0] || "";
 }

@@ -189,6 +189,9 @@ self.onmessage = (ev: MessageEvent) => {
         type: "cloud-ready",
         topic: header.topic,
         renderable,
+        // Raw single-frame count (before history accumulation) so topic ranking
+        // reflects real per-frame density, not how long we've been buffering.
+        frameCount: header.n,
         time: header.time,
         frameId: header.frameId,
         resolvedFrame: header.resolvedFrame,

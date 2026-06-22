@@ -5,6 +5,7 @@ export type PendingPointCloudPacket = {
   topic: string;
   points: Point3D[];
   readings?: LidarReading[];
+  frameCount?: number;
   frameId?: string;
   resolvedFrame?: string;
   time?: string;
