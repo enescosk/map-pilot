@@ -10,10 +10,12 @@ class MockWebSocket {
 
   readyState = MockWebSocket.CONNECTING;
   sent: string[] = [];
+  url: string;
   private listeners: Record<string, Array<(e: unknown) => void>> = {};
   static instances: MockWebSocket[] = [];
 
-  constructor(public url: string) {
+  constructor(url: string) {
+    this.url = url;
     MockWebSocket.instances.push(this);
   }
 

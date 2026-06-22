@@ -1,0 +1,12 @@
+import { chromium } from "playwright";
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1680, height: 945 } });
+await page.goto("http://localhost:5173/", { waitUntil: "domcontentloaded" });
+await page.getByRole("button", { name: "LiDAR", exact: true }).first().click();
+await page.waitForTimeout(9000);
+const sel = await page.locator('.topic-select').inputValue().catch(()=>"?");
+console.log("AUTO-SELECTED (port 5173):", sel);
+await page.getByRole("button", { name: "Fit", exact: true }).first().click();
+await page.waitForTimeout(2000);
+await page.screenshot({ path: "/tmp/user_demo.png" });
+await browser.close();
