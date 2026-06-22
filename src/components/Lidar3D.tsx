@@ -18,13 +18,15 @@ type LidarDebugStats = {
   firstPoints: Point3D[];
 };
 
-const LIDAR_RENDER_FPS = 30;
+const LIDAR_RENDER_FPS = 40;
 // Default camera: behind-and-above the ego, slightly looking down.
 // In Three.js coords, vehicle is at origin and forward = -Z, so we sit at +Z (behind), +Y (above).
-const DEFAULT_LIDAR_CAMERA_POSITION = new THREE.Vector3(0, 25, 35);
-// Tighter height-color range: ground = blue, person height = green/yellow, canopy = red.
-const HEIGHT_COLOR_MIN = -1;
-const HEIGHT_COLOR_MAX = 5;
+const DEFAULT_LIDAR_CAMERA_POSITION = new THREE.Vector3(0, 18, 28);
+// Height-color range tuned for a roof-mounted sensor on a road: the ground sits
+// ~1.6 m below the sensor (cool blue), curbs/people read green, walls/canopy
+// warm. A tighter range than before makes low structure stand out from ground.
+const HEIGHT_COLOR_MIN = -2;
+const HEIGHT_COLOR_MAX = 4;
 
 function Lidar3D({
   readings,

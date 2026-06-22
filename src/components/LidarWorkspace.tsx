@@ -29,7 +29,7 @@ export function LidarWorkspace({
   useEffect(() => {
     onMapViewChange?.(cloudView === "map");
   }, [cloudView, onMapViewChange]);
-  const [pointSize, setPointSize] = useState(0.35);
+  const [pointSize, setPointSize] = useState(0.45);
   const [colorMode, setColorMode] = useState<LidarColorMode>("height");
   const [autoFit, setAutoFit] = useState(true);
   const [showDebug, setShowDebug] = useState(false);
