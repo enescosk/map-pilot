@@ -150,4 +150,27 @@ describe("pointCloud2ToPoints", () => {
     const points = pointCloud2ToPoints(msg);
     expect(points[0].intensity).toBeCloseTo(0.75);
   });
+
+  // rosbridge_suite serializes uint8[] data as a base64 string by default.
+  // Decoding it as anything other than base64 corrupts the entire cloud, so a
+  // base64-string payload must yield the same points as the raw Buffer.
+  it("decodes a base64-string data field (rosbridge default)", () => {
+    const buffer = makePC2([{ x: 1.5, y: 2.5, z: 3.5 }]);
+    const base64Msg = { ...buffer, data: buffer.data.toString("base64") };
+    expect(typeof base64Msg.data).toBe("string");
+    const points = pointCloud2ToPoints(base64Msg);
+    expect(points).toHaveLength(1);
+    expect(points[0].x).toBeCloseTo(1.5);
+    expect(points[0].y).toBeCloseTo(2.5);
+    expect(points[0].z).toBeCloseTo(3.5);
+  });
+
+  it("decodes a plain number-array data field", () => {
+    const buffer = makePC2([{ x: 4, y: 5, z: 6 }]);
+    const arrayMsg = { ...buffer, data: [...buffer.data] };
+    const points = pointCloud2ToPoints(arrayMsg);
+    expect(points).toHaveLength(1);
+    expect(points[0].x).toBeCloseTo(4);
+    expect(points[0].z).toBeCloseTo(6);
+  });
 });

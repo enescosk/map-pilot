@@ -8,6 +8,21 @@ function findPointField(message, name) {
   return message?.fields?.find((field) => field.name === name);
 }
 
+// rosbridge serializes a PointCloud2 `uint8[] data` field as a base64 string
+// (default) or, with the right options, as a plain number array. Bag playback
+// hands us a Buffer directly. Decode all three to a Buffer so the field reads
+// below land on the real bytes — `Buffer.from(base64String)` without the
+// "base64" arg silently mis-decodes as UTF-8 and corrupts the whole cloud.
+function toPointCloudBuffer(data) {
+  if (Buffer.isBuffer(data)) return data;
+  if (Array.isArray(data)) return Buffer.from(data);
+  if (typeof data === "string") return Buffer.from(data, "base64");
+  if (data && (data instanceof Uint8Array || ArrayBuffer.isView(data))) {
+    return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  }
+  return Buffer.alloc(0);
+}
+
 function readField(buffer, offset, datatype, isBigEndian) {
   try {
     switch (datatype) {
@@ -37,7 +52,7 @@ export function pointCloud2ToReadings(message) {
     return [];
   }
 
-  const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
+  const buffer = toPointCloudBuffer(data);
   const step = Math.max(1, Math.ceil(pointCount / MAX_SCAN_POINTS));
   const readings = [];
 
@@ -78,7 +93,7 @@ export function pointCloud2ToPoints(message) {
     return [];
   }
 
-  const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
+  const buffer = toPointCloudBuffer(data);
   const step = Math.max(1, Math.ceil(pointCount / MAX_POINT_CLOUD_POINTS));
   const points = [];
 
