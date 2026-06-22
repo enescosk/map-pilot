@@ -1,0 +1,10 @@
+import { chromium } from "playwright";
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1680, height: 945 } });
+await page.goto("http://localhost:5174/", { waitUntil: "domcontentloaded" });
+await page.getByRole("button", { name: "LiDAR", exact: true }).first().click();
+await page.waitForTimeout(7000);
+await page.getByRole("button", { name: "Fit", exact: true }).first().click();
+await page.waitForTimeout(1500);
+await page.screenshot({ path: "/tmp/lidar_full.png" });
+await browser.close();

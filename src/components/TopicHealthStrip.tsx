@@ -50,7 +50,7 @@ function TopicHealthStrip({ health, sourceLabel, modeKind, waitingMessage }: Top
             <div className="health-detail-group">
               <span className="health-detail-label health-warn">Stale ({staleTopics.length})</span>
               {staleTopics.map(([name, t]) => (
-                <span key={name} className="health-detail-item" title={`${t.hitCount} paket, ${Math.round(t.ageMs / 1000)}s önce`}>
+                <span key={name} className="health-detail-item" title={`${t.hitCount} paket, ${Math.round((t.ageMs ?? 0) / 1000)}s önce`}>
                   {name}
                 </span>
               ))}

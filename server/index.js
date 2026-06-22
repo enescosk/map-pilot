@@ -13,6 +13,7 @@
 import { WebSocketServer } from "ws";
 
 import { createDirectLidarSource } from "./sources/directLidarSource.js";
+import { createSyntheticLidarSource } from "./sources/syntheticLidarSource.js";
 import { createMqttBridgeSource, MQTT_RAW_TOPICS, MQTT_URL } from "./sources/mqttBridgeSource.js";
 import { createRosBridgeLidarSource, ROS_SCAN_TOPIC, ROSBRIDGE_URL as ROS_LIDAR_BRIDGE_URL } from "./sources/rosBridgeLidarSource.js";
 import { createVehicleRosSource, LIVE_ROS_TOPICS, ROSBRIDGE_URL as VEHICLE_ROSBRIDGE_URL } from "./sources/vehicleRosSource.js";
@@ -28,7 +29,7 @@ const LIDAR_SOURCE = process.env.LIDAR_SOURCE || "vehicle-ros";
 const MQTT_PUBLISH = process.env.MQTT_PUBLISH === "true";
 const AUTO_START_SOURCE =
   process.env.AUTO_START_SOURCE === "true" ||
-  ["mqtt", "ros", "vehicle-ros"].includes(LIDAR_SOURCE);
+  ["mqtt", "ros", "vehicle-ros", "synthetic"].includes(LIDAR_SOURCE);
 
 const wss = new WebSocketServer({ port: WS_PORT });
 let lidarSource;
@@ -190,6 +191,9 @@ function createLidarSource(sourceOverride, rosbridgeUrlOverride, mqttUrlOverride
   }
   if (src === "mqtt") {
     return createMqttBridgeSource({ emit: emitFromSource, url: mqttUrlOverride });
+  }
+  if (src === "synthetic") {
+    return createSyntheticLidarSource({ emit: emitFromSource });
   }
   return createDirectLidarSource({ emit: emitFromSource });
 }

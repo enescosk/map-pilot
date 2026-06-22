@@ -366,10 +366,20 @@ function Lidar3D({
       window.removeEventListener("resize", handleResize);
       controls.dispose();
       pointTextureRef.current?.dispose();
+      // Dispose the point cloud and clear its ref so the cloud-creation effect
+      // re-runs on remount (React 19 StrictMode mounts twice). Without this the
+      // cloud stays attached to the disposed scene and never re-renders.
+      if (cloudRef.current) {
+        cloudRef.current.geometry.dispose();
+        (cloudRef.current.material as THREE.Material).dispose();
+        cloudRef.current = null;
+      }
       renderer.dispose();
       mount.removeChild(renderer.domElement);
+      sceneRef.current = null;
       cameraRef.current = null;
       vehicleRef.current = null;
+      controlsRef.current = null;
     };
   }, []);
 
