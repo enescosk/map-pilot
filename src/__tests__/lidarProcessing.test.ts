@@ -105,10 +105,11 @@ describe("selectStoredLivePoints", () => {
     expect(selectStoredLivePoints(pts)).toBe(pts);
   });
 
-  it("downsamples when over 120000 points", () => {
+  it("downsamples when over the stored-live cap", () => {
     const pts = Array.from({ length: 150000 }, (_, i) => pt(i, 0));
     const result = selectStoredLivePoints(pts);
-    expect(result.length).toBeLessThanOrEqual(120000);
+    expect(result.length).toBeLessThanOrEqual(80000);
+    expect(result.length).toBeGreaterThan(0);
   });
 });
 

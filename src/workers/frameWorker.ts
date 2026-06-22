@@ -17,6 +17,13 @@ const topicBuffers = new Map<string, Float32Array>(); // x,y,z,intensity interle
 const topicWritePos = new Map<string, number>();
 const topicFill = new Map<string, number>();
 
+// The dashboard displays exactly one point-cloud topic at a time. Processing
+// the other 4+ live clouds (each up to 136k pts at 10 Hz) is pure waste and a
+// prime crash vector, so we only do the heavy filter/downsample for the active
+// topic. Empty string means "not chosen yet" — process everything so the first
+// frames can populate the topic list and auto-selection can settle.
+let activeTopic = "";
+
 const FLOATS_PER_POINT = 4;
 const BUFFER_POINTS = MAX_LIDAR_HISTORY;
 const BUFFER_FLOATS = BUFFER_POINTS * FLOATS_PER_POINT;
@@ -147,6 +154,14 @@ self.onmessage = (ev: MessageEvent) => {
         type: string; topic: string; time: string; source: string;
         frameId: string; resolvedFrame: string; n: number;
       };
+      // Skip the heavy decode for clouds the user isn't looking at. We still
+      // post a lightweight ack (with point count) so the topic list / auto-pick
+      // keeps working and the client's backpressure slot is released.
+      if (activeTopic && header.topic !== activeTopic) {
+        self.postMessage({ type: "cloud-skipped", topic: header.topic, n: header.n, time: header.time, frameId: header.frameId, resolvedFrame: header.resolvedFrame });
+        return;
+      }
+
       const dataOffset = 4 + headerLen;
 
       // Float32Array requires 4-byte aligned offset. Server pads header to
@@ -228,8 +243,20 @@ self.onmessage = (ev: MessageEvent) => {
     return;
   }
 
+  if (type === "set-active-topic") {
+    const next = String(payload || "");
+    if (next !== activeTopic) {
+      // Drop the old topic's history so a switch doesn't keep stale clouds in
+      // memory and the new topic starts clean.
+      if (activeTopic) clearTopicBuffer(activeTopic);
+      activeTopic = next;
+    }
+    return;
+  }
+
   if (type === "reset") {
     for (const topic of topicBuffers.keys()) clearTopicBuffer(topic);
+    activeTopic = "";
     return;
   }
 

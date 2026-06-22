@@ -50,10 +50,15 @@ export function useLiveTelemetry({ url, onMessage, onWorkerMessage, onOpen }: Us
     clientRef.current?.send(message) ?? false
   ), []);
 
+  const setActiveTopic = useCallback((topic: string) => {
+    clientRef.current?.setActiveTopic(topic);
+  }, []);
+
   return {
     connected,
     wsStatus,
     sendMessage,
+    setActiveTopic,
     connect: () => clientRef.current?.connect(),
     disconnect: () => clientRef.current?.disconnect(),
   };

@@ -8,6 +8,10 @@ export type LidarCloudState = {
   resolvedFrame?: string;
   lastTime?: string;
   filterVersion?: number;
+  // Raw point count from the most recent frame, even for topics the worker
+  // skipped (not the active topic). Lets the picker list every cloud and lets
+  // auto-selection compare them without storing their full point arrays.
+  pointCount?: number;
 };
 
 export type LaserScanLike = {
@@ -22,9 +26,13 @@ export type LaserScanLike = {
 
 const MAX_LIDAR_HISTORY_POINTS = 32000;
 const MAX_RENDERED_POINT_CLOUD_POINTS = 60000;
-const MAX_STORED_LIVE_POINTS = 120000;
-const MAX_LIDAR_MAP_POINTS = 900000;
-export const MAX_TOTAL_MAP_POINTS = 1400000;
+// The 3D renderer only draws up to ~65k points (its fixed typed-array pool), so
+// storing far more than that is memory we never display. Keep live + map caps
+// comfortably below what a memory-limited tab (e.g. Firefox) can hold. Map at
+// ~450k pts × ~32 B ≈ 14 MB; bumping these back up risks the OOM tab crash.
+const MAX_STORED_LIVE_POINTS = 80000;
+const MAX_LIDAR_MAP_POINTS = 450000;
+export const MAX_TOTAL_MAP_POINTS = 600000;
 const LIDAR_MAP_VOXEL_SIZE = 0.15;
 export const POINT_CLOUD_FLUSH_MS = 100;
 const LIDAR_VIEW_RADIUS_METERS = 80;
@@ -358,11 +366,17 @@ function pointCloudTopicPriority(topic: string) {
   return 0;
 }
 
+// Effective point count for ranking: rendered points if we have them, else the
+// raw count reported for a skipped (non-active) topic.
+function cloudPointCount(state: LidarCloudState) {
+  return state.points.length > 0 ? state.points.length : (state.pointCount || 0);
+}
+
 export function chooseBestPointCloudTopic(pointClouds: Record<string, LidarCloudState>) {
   return Object.entries(pointClouds)
-    .filter(([topic, state]) => isPointCloudTopic(topic) && state.points.length > 0)
+    .filter(([topic, state]) => isPointCloudTopic(topic) && cloudPointCount(state) > 0)
     .sort(([leftTopic, left], [rightTopic, right]) => {
       const priorityDelta = pointCloudTopicPriority(rightTopic) - pointCloudTopicPriority(leftTopic);
-      return priorityDelta || right.points.length - left.points.length;
+      return priorityDelta || cloudPointCount(right) - cloudPointCount(left);
     })[0]?.[0] || "";
 }

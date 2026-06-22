@@ -258,9 +258,26 @@ function App() {
       setActivePointCloudTopic((prev) => prev || topic);
       setLatestFrame({ topic, time, messageType: "PointCloud2", preview: `${renderable.length} sampled 3D points` });
     }
+
+    if (type === "cloud-skipped") {
+      // A non-active cloud the worker chose not to fully process. Register the
+      // topic (with its raw point count) so it still appears in the picker and
+      // auto-selection can compare it — but do no heavy work.
+      const { topic, n } = ev.data as { topic: string; n: number };
+      setPointClouds((prev) => {
+        const existing = prev[topic];
+        if (existing && existing.pointCount === n && existing.points.length === 0) return prev;
+        return {
+          ...prev,
+          [topic]: existing
+            ? { ...existing, pointCount: n }
+            : { points: [], mapPoints: [], frameId: "", resolvedFrame: "", pointCount: n },
+        };
+      });
+    }
   }, [enqueuePointCloud]);
 
-  const { connected: backendConnected, wsStatus, sendMessage } = useLiveTelemetry({
+  const { connected: backendConnected, wsStatus, sendMessage, setActiveTopic: setWorkerActiveTopic } = useLiveTelemetry({
     url: WS_URL,
     onMessage: handleLiveMessage,
     onWorkerMessage: handleWorkerMessage,
@@ -271,6 +288,12 @@ function App() {
       sendMessage({ type: "start-lidar" });
     }
   }, [backendConnected, sendMessage]);
+
+  // Tell the worker which cloud is on screen so it only does the heavy
+  // filter/downsample for that one (the other live clouds are dropped cheaply).
+  useEffect(() => {
+    setWorkerActiveTopic(activePointCloudTopic);
+  }, [activePointCloudTopic, setWorkerActiveTopic]);
 
   const isLiveSource = backendSource === "mqtt" || backendSource === "vehicle-ros" || backendSource === "rosbridge" || backendSource === "direct-serial";
   const sourceTitle = isLiveSource ? "Canlı Araç" : "Bağlı değil";

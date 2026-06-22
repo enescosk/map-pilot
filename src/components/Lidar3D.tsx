@@ -190,11 +190,26 @@ function Lidar3D({
     camera.lookAt(0, 0, 0);
     cameraRef.current = camera;
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     mount.appendChild(renderer.domElement);
     pointTextureRef.current = createPointSpriteTexture();
+
+    // WebGL context loss (GPU OOM / driver reset under a heavy cloud) otherwise
+    // leaves a permanently black canvas. Prevent the default so the browser will
+    // restore the context, and re-render once it's back.
+    const canvas = renderer.domElement;
+    const handleContextLost = (event: Event) => {
+      event.preventDefault();
+      console.warn("LiDAR WebGL context lost — waiting for restore");
+    };
+    const handleContextRestored = () => {
+      console.warn("LiDAR WebGL context restored");
+      renderRequestRef.current?.();
+    };
+    canvas.addEventListener("webglcontextlost", handleContextLost, false);
+    canvas.addEventListener("webglcontextrestored", handleContextRestored, false);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -364,6 +379,8 @@ function Lidar3D({
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener("resize", handleResize);
+      canvas.removeEventListener("webglcontextlost", handleContextLost);
+      canvas.removeEventListener("webglcontextrestored", handleContextRestored);
       controls.dispose();
       pointTextureRef.current?.dispose();
       // Dispose the point cloud and clear its ref so the cloud-creation effect
