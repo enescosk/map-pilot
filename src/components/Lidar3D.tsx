@@ -413,8 +413,12 @@ function Lidar3D({
 
     const material = new THREE.PointsMaterial({
       size: Math.max(pointSize, 0.25),
+      // Soft round sprite (built in createPointSpriteTexture) instead of hard
+      // squares — alphaTest drops the transparent rim so points stay crisp.
+      map: pointTextureRef.current,
       opacity: 1,
-      transparent: false,
+      transparent: true,
+      alphaTest: 0.35,
       vertexColors: true,
       blending: THREE.NormalBlending,
       depthTest: false,
