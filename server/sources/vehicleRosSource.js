@@ -42,6 +42,9 @@ export function createVehicleRosSource({ emit, url } = {}) {
   let rosSocket;
   let connected = false;
   let subscribed = false;
+  let reconnectTimer;
+  let stopped = false;
+  let reconnectDelay = 1000;
 
   function getStatus() {
     return {
@@ -81,6 +84,7 @@ export function createVehicleRosSource({ emit, url } = {}) {
   }
 
   function start() {
+    stopped = false;
     if (rosSocket) {
       if (rosSocket.readyState === WebSocket.OPEN) {
         subscribe();
@@ -125,6 +129,7 @@ export function createVehicleRosSource({ emit, url } = {}) {
       connected = false;
       subscribed = false;
       emit(getStatus());
+      if (!stopped) scheduleReconnect();
     });
 
     rosSocket.on("error", (error) => {
@@ -132,7 +137,21 @@ export function createVehicleRosSource({ emit, url } = {}) {
     });
   }
 
+  function scheduleReconnect() {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(() => {
+      if (!stopped) {
+        rosSocket = undefined;
+        start();
+        reconnectDelay = Math.min(reconnectDelay * 2, 30_000);
+      }
+    }, reconnectDelay);
+  }
+
   function stop() {
+    stopped = true;
+    clearTimeout(reconnectTimer);
+    reconnectDelay = 1000;
     unsubscribe();
     if (rosSocket) {
       rosSocket.close();

@@ -278,6 +278,10 @@ wss.on("connection", (ws) => {
       }
 
       if (payload.type === "control-command") {
+        const now = Date.now();
+        const lastSent = ws._lastControlSentAt || 0;
+        if (now - lastSent < 50) return; // 20 Hz cap
+        ws._lastControlSentAt = now;
         const result = controlPublisher.publish({
           topic: payload.topic,
           msgType: payload.msgType,

@@ -69,7 +69,7 @@ export function createControlPublisher({
       time: new Date().toISOString(),
       message: message || {},
     };
-    client.publish(mqttTopic, JSON.stringify(envelope));
+    client.publish(mqttTopic, JSON.stringify(envelope), { qos: 1 });
     return { ok: true, mqttTopic };
   }
 
