@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { CameraStatus } from "../types/liveMessages";
+import { EmptyState } from "./EmptyState";
 
 export function CameraViewer({ camera }: { camera: CameraStatus }) {
   const [displaySrc, setDisplaySrc] = useState(camera.frameSrc || "");
@@ -36,7 +37,7 @@ export function CameraViewer({ camera }: { camera: CameraStatus }) {
         {cameraSrc ? (
           <img src={cameraSrc} alt="Live camera feed" />
         ) : (
-          <div className="empty-state">No camera frame received yet</div>
+          <EmptyState icon="camera" title="Kamera bekleniyor" hint="Canlı görüntü için araca bağlanın" connecting />
         )}
       </div>
       <div className="metric-strip">

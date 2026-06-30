@@ -25,6 +25,7 @@ import {
 } from "./utils/lidarProcessing";
 import { sourceHealthLabel, sourceModeInfo } from "./utils/dashboardHelpers";
 import { formatNumber, vectorMagnitude } from "./utils/telemetryFormatters";
+import tubitakLogo from "./assets/tubitak-yatay-beyaz.png";
 import "./App.css";
 
 const WS_URL =
@@ -304,7 +305,15 @@ function App() {
     topicHealth.sources[backendSource] ||
     topicHealth.sources[sourceMode.label];
   const sourceIsConnected = Boolean(sourceHealth?.connected ?? sourceConnected);
-  const sourceHasStaleTopics = Object.values(topicHealth.topics || {}).some((topic) => topic.isStale);
+  // Only flag "stale" when real data topics go quiet — ignore internal/error
+  // bookkeeping topics (e.g. __backend__) and tolerate a couple of naturally
+  // bursty feeds so a healthy live demo doesn't read as red.
+  const dataTopics = Object.entries(topicHealth.topics || {}).filter(
+    ([name, topic]) => !name.startsWith("__") && topic.kind !== "error",
+  );
+  const staleDataTopics = dataTopics.filter(([, topic]) => topic.isStale);
+  const sourceHasStaleTopics =
+    sourceIsConnected && dataTopics.length > 0 && staleDataTopics.length > Math.max(2, dataTopics.length * 0.5);
   const sourceStatusText = sourceHealthLabel(sourceIsConnected, isLiveSource, sourceHasStaleTopics);
 
   function connectSource(source: "vehicle-ros" | "mqtt", rosbridgeUrl: string, mqttUrl: string) {
@@ -314,9 +323,12 @@ function App() {
   return (
     <main className="app-shell">
       <header className="top-bar">
-        <div>
-          <span className="app-kicker">MapPilot Cockpit</span>
-          <h1>{sourceTitle}</h1>
+        <div className="brand-block">
+          <img className="brand-logo" src={tubitakLogo} alt="TÜBİTAK" />
+          <div>
+            <span className="app-kicker">MapPilot Cockpit</span>
+            <h1>{sourceTitle}</h1>
+          </div>
         </div>
         <div className="mode-switcher">
           <button type="button" className={mode === "perception" ? "active" : ""} onClick={() => setMode("perception")}>Cockpit</button>

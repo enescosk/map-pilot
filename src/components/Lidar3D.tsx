@@ -193,7 +193,10 @@ function Lidar3D({
     cameraRef.current = camera;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // Cap pixel ratio at 1.5: on a 2× HiDPI display, rendering at full 2× means 4×
+    // the fragments, and a fill-heavy point cloud is exactly what that punishes.
+    // 1.5 cuts ~44% of the pixel work with no visible loss on sprite points.
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     mount.appendChild(renderer.domElement);
     pointTextureRef.current = createPointSpriteTexture();
@@ -235,7 +238,8 @@ function Lidar3D({
     grid.material.opacity = 0.28;
     grid.position.y = -1.5; // sit at typical road level relative to roof-mounted sensor
     scene.add(grid);
-    scene.add(new THREE.AxesHelper(5));
+    // (No AxesHelper at the origin — its X/Y/Z lines punched straight through the
+    // ego car. Orientation is conveyed by the forward arrow + FRONT/BACK labels.)
 
     const ringMaterial = new THREE.LineBasicMaterial({
       color: "#0f4e75",
@@ -303,41 +307,93 @@ function Lidar3D({
     scene.add(new THREE.Line(arrowGeom, arrowMat));
 
     const vehicle = new THREE.Group();
-    const body = new THREE.Mesh(
-      new THREE.BoxGeometry(2.2, 0.55, 3.4),
-      new THREE.MeshBasicMaterial({ color: "#e5edf6" }),
-    );
-    body.position.y = 0.45;
+    // Forward is −Z. The body is built as a smooth top-view silhouette in the
+    // shape's (x=width, y=length) plane, extruded for height, then laid flat with
+    // rotateX(−90°) so the shape's +y maps to world −z (forward).
+    const HALF_W = 1.0;
+    const FRONT_Y = 2.2;
+    const REAR_Y = -2.0;
+
+    const silhouette = new THREE.Shape();
+    silhouette.moveTo(0, FRONT_Y); // pointed front
+    silhouette.bezierCurveTo(0.55, FRONT_Y - 0.05, HALF_W, 1.15, HALF_W, 0.4);
+    silhouette.lineTo(HALF_W, -1.0);
+    silhouette.bezierCurveTo(HALF_W, REAR_Y + 0.35, 0.6, REAR_Y, 0, REAR_Y); // rounded rear
+    silhouette.bezierCurveTo(-0.6, REAR_Y, -HALF_W, REAR_Y + 0.35, -HALF_W, -1.0);
+    silhouette.lineTo(-HALF_W, 0.4);
+    silhouette.bezierCurveTo(-HALF_W, 1.15, -0.55, FRONT_Y - 0.05, 0, FRONT_Y);
+
+    const bodyGeom = new THREE.ExtrudeGeometry(silhouette, {
+      depth: 0.5,
+      bevelEnabled: true,
+      bevelThickness: 0.16,
+      bevelSize: 0.16,
+      bevelSegments: 4,
+      steps: 1,
+    });
+    bodyGeom.rotateX(-Math.PI / 2); // lay flat: extrude height -> world +y
+    const body = new THREE.Mesh(bodyGeom, new THREE.MeshBasicMaterial({ color: "#22304a" }));
+    body.position.y = 0.3;
+    // Only keep the sharp silhouette edges (not every bevel facet) as a cyan glow.
+    body.add(new THREE.LineSegments(
+      new THREE.EdgesGeometry(bodyGeom, 32),
+      new THREE.LineBasicMaterial({ color: "#38bdf8", transparent: true, opacity: 0.7 }),
+    ));
     vehicle.add(body);
 
-    const cabin = new THREE.Mesh(
-      new THREE.BoxGeometry(1.35, 0.42, 1.35),
-      new THREE.MeshBasicMaterial({ color: "#38bdf8" }),
+    // Glass canopy — a stretched translucent dome for the cabin.
+    const canopy = new THREE.Mesh(
+      new THREE.SphereGeometry(0.92, 28, 18, 0, Math.PI * 2, 0, Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: "#7dd3fc", transparent: true, opacity: 0.5 }),
     );
-    cabin.position.set(0, 0.95, -0.35);
-    vehicle.add(cabin);
+    canopy.scale.set(0.92, 0.62, 1.45);
+    canopy.position.set(0, 0.74, -0.15);
+    vehicle.add(canopy);
 
+    // Forward direction arrow (−Z is forward).
     const nose = new THREE.Mesh(
-      new THREE.ConeGeometry(0.42, 0.9, 3),
-      new THREE.MeshBasicMaterial({ color: "#f59e0b" }),
+      new THREE.ConeGeometry(0.32, 0.85, 4),
+      new THREE.MeshBasicMaterial({ color: "#22d3ee" }),
     );
-    nose.position.set(0, 0.55, -2.15);
+    nose.position.set(0, 0.55, -2.55);
     nose.rotation.x = -Math.PI / 2;
+    nose.rotation.y = Math.PI / 4;
     vehicle.add(nose);
 
-    const wheelMaterial = new THREE.MeshBasicMaterial({ color: "#111827" });
+    // Headlights (front, white) and tail lights (rear, red).
+    const lampGeom = new THREE.BoxGeometry(0.34, 0.16, 0.12);
+    [-0.62, 0.62].forEach((x) => {
+      const head = new THREE.Mesh(lampGeom, new THREE.MeshBasicMaterial({ color: "#f8fafc" }));
+      head.position.set(x, 0.42, -2.0);
+      vehicle.add(head);
+      const tail = new THREE.Mesh(lampGeom, new THREE.MeshBasicMaterial({ color: "#ef4444" }));
+      tail.position.set(x, 0.42, 1.95);
+      vehicle.add(tail);
+    });
+
+    const wheelMaterial = new THREE.MeshBasicMaterial({ color: "#0b1220" });
+    const wheelGeom = new THREE.CylinderGeometry(0.32, 0.32, 0.26, 20);
     [
-      [-1.25, 0.22, -1.1],
-      [1.25, 0.22, -1.1],
-      [-1.25, 0.22, 1.1],
-      [1.25, 0.22, 1.1],
+      [-1.02, 0.3, -1.25],
+      [1.02, 0.3, -1.25],
+      [-1.02, 0.3, 1.25],
+      [1.02, 0.3, 1.25],
     ].forEach(([x, y, z]) => {
-      const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.22, 16), wheelMaterial);
+      const wheel = new THREE.Mesh(wheelGeom, wheelMaterial);
       wheel.position.set(x, y, z);
       wheel.rotation.z = Math.PI / 2;
+      wheel.add(new THREE.LineSegments(
+        new THREE.EdgesGeometry(wheelGeom),
+        new THREE.LineBasicMaterial({ color: "#64748b", transparent: true, opacity: 0.7 }),
+      ));
       vehicle.add(wheel);
     });
+
     vehicle.scale.setScalar(1.1);
+    // Opaque car parts already occlude the cloud via depthTest. Bump every part's
+    // renderOrder above the cloud (10) so the car's *transparent* bits (glass
+    // canopy, edge glow) also draw after the points instead of under them.
+    vehicle.traverse((obj) => { obj.renderOrder = 20; });
     scene.add(vehicle);
     vehicleRef.current = vehicle;
 
@@ -353,16 +409,39 @@ function Lidar3D({
     const markDirty = () => { needsRender = true; };
     renderRequestRef.current = markDirty;
 
+    // Adaptive resolution: if rendered frames keep coming in slow, step the pixel
+    // ratio down (1.5 → 1.0 → 0.75) to recover smoothness; if they're comfortably
+    // fast, step back up. Hysteresis (separate slow/fast thresholds + a frame
+    // counter) keeps it from oscillating.
+    const PIXEL_RATIO_STEPS = [Math.min(window.devicePixelRatio, 1.5), 1.0, 0.75];
+    let prStep = 0;
+    let slowStreak = 0;
+    let fastStreak = 0;
+    const SLOW_MS = 1000 / 24; // a rendered frame slower than ~24 fps is "slow"
+    const FAST_MS = 1000 / 50;
+
     const render = (now = 0) => {
       frame = requestAnimationFrame(render);
       if (!needsRender && now - lastRenderMs < minRenderIntervalMs * 4) {
         return;
       }
       if (now - lastRenderMs < minRenderIntervalMs) return;
+      const sinceLast = now - lastRenderMs;
       needsRender = false;
       lastRenderMs = now;
       controls.update();
       renderer.render(scene, camera);
+
+      // Tune resolution based on how long real render frames are taking.
+      if (sinceLast > SLOW_MS) { slowStreak++; fastStreak = 0; }
+      else if (sinceLast < FAST_MS) { fastStreak++; slowStreak = 0; }
+      if (slowStreak >= 8 && prStep < PIXEL_RATIO_STEPS.length - 1) {
+        prStep++; slowStreak = 0;
+        renderer.setPixelRatio(PIXEL_RATIO_STEPS[prStep]);
+      } else if (fastStreak >= 90 && prStep > 0) {
+        prStep--; fastStreak = 0;
+        renderer.setPixelRatio(PIXEL_RATIO_STEPS[prStep]);
+      }
     };
     controls.addEventListener("change", markDirty);
     render();
@@ -440,7 +519,10 @@ function Lidar3D({
       alphaTest: 0.35,
       vertexColors: true,
       blending: THREE.NormalBlending,
-      depthTest: false,
+      // depthTest ON so the opaque ego car occludes points behind/inside it (the
+      // car is the only opaque object, so nothing else is affected). depthWrite
+      // stays OFF so points don't occlude each other and blending is preserved.
+      depthTest: true,
       depthWrite: false,
       sizeAttenuation: true,
     });

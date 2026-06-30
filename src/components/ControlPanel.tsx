@@ -22,8 +22,8 @@ function ControlPanel({
   return (
     <article className="panel control-panel">
       <div className="panel-heading">
-        <p className="panel-label">Operator</p>
-        <h2>Controls</h2>
+        <p className="panel-label">Operatör</p>
+        <h2>Kontroller</h2>
       </div>
 
       {/* These buttons send simple commands to the local LiDAR backend. */}

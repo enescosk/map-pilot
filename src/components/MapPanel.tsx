@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { GpsFix } from "../types/telemetry";
 import { formatNumber } from "../utils/telemetryFormatters";
+import { EmptyState } from "./EmptyState";
 
 type GpsTrailPoint = {
   latitude: number;
@@ -33,7 +34,7 @@ export function MapPanel({ gps, speed }: { gps: GpsFix; speed: number }) {
         <span>Map</span>
         <strong>{hasFix ? `${formatNumber(lat, 5)}, ${formatNumber(lon, 5)}` : "No fix"}</strong>
       </div>
-      {mapSrc ? <iframe title="OpenStreetMap vehicle position" src={mapSrc} /> : <div className="empty-state">Waiting for GPS...</div>}
+      {mapSrc ? <iframe title="OpenStreetMap vehicle position" src={mapSrc} /> : <EmptyState icon="map" title="GPS bekleniyor" hint="Konum sabitlenince harita yüklenecek" connecting />}
       <div className="metric-strip">
         <span>Speed {formatNumber(speed)} m/s</span>
         <span>Alt {formatNumber(gps.altitude)} m</span>

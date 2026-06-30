@@ -88,6 +88,19 @@
   right: 0;
 }
 
+.brand-block {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+}
+
+.brand-logo {
+  height: 38px;
+  width: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.25));
+}
+
 .app-kicker {
   color: var(--accent);
   display: block;
@@ -656,6 +669,56 @@ button:hover {
   min-height: 160px;
 }
 
+.empty-state.rich {
+  flex-direction: column;
+  gap: 8px;
+  text-align: center;
+}
+
+.empty-icon {
+  align-items: center;
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.12), transparent 70%);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 50%;
+  color: #38bdf8;
+  display: flex;
+  height: 64px;
+  justify-content: center;
+  width: 64px;
+}
+
+.empty-state.connecting .empty-icon {
+  animation: emptyPulse 1.6s ease-in-out infinite;
+}
+
+@keyframes emptyPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.3); opacity: 0.85; }
+  50% { box-shadow: 0 0 0 10px rgba(56, 189, 248, 0); opacity: 1; }
+}
+
+.empty-title {
+  color: #cbd5e1;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.empty-hint {
+  color: #6b7689;
+  font-size: 0.78rem;
+}
+
+.empty-state.connecting .empty-hint::after {
+  animation: emptyDots 1.4s steps(4, end) infinite;
+  content: "";
+}
+
+@keyframes emptyDots {
+  0% { content: ""; }
+  25% { content: "."; }
+  50% { content: ".."; }
+  75% { content: "..."; }
+}
+
 .lidar-empty-state {
   background: #070b12;
   min-height: 360px;
@@ -1125,225 +1188,61 @@ button:hover {
   align-items: center;
   display: flex;
   justify-content: center;
-  min-height: 178px;
-  overflow: hidden;
+  min-height: 196px;
+  overflow: visible;
   position: relative;
 }
 
-.vehicle-body {
-  height: 168px;
-  position: relative;
-  width: 148px;
+.vehicle-svg {
+  height: 200px;
+  width: auto;
+  filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.4));
 }
 
-.vehicle-shadow {
-  background: radial-gradient(ellipse, rgba(0, 0, 0, 0.5), transparent 68%);
-  bottom: 0;
-  height: 28px;
-  left: 6px;
-  position: absolute;
-  right: 6px;
+.vehicle-emblem {
+  filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.4));
 }
 
-.vehicle-shell {
-  background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.22) 48%, rgba(0, 0, 0, 0.22)),
-    linear-gradient(180deg, #2f3b4c 0%, #182334 48%, #111827 100%);
-  border: 1px solid rgba(148, 163, 184, 0.46);
-  border-radius: 42px 42px 26px 26px;
-  box-shadow: inset 0 0 28px rgba(8, 13, 18, 0.7), 0 16px 30px rgba(0, 0, 0, 0.34);
-  height: 148px;
-  left: 27px;
-  position: absolute;
-  top: 6px;
-  width: 94px;
-  z-index: 2;
+/* headlights */
+.veh-headlight {
+  fill: rgba(226, 232, 240, 0.22);
+  transition: fill 0.2s, filter 0.2s;
+}
+.veh-headlight.on {
+  fill: #f8fafc;
+  filter: drop-shadow(0 0 10px rgba(248, 250, 252, 0.7));
 }
 
-.vehicle-windshield {
-  background:
-    linear-gradient(135deg, rgba(186, 230, 253, 0.38), rgba(15, 23, 42, 0.72));
-  border: 1px solid rgba(125, 211, 252, 0.28);
-  box-shadow: inset 8px 0 16px rgba(255, 255, 255, 0.08);
-  height: 24px;
-  left: 18px;
-  position: absolute;
-  right: 18px;
+/* brake lights */
+.veh-brake {
+  fill: rgba(239, 68, 68, 0.25);
+  transition: fill 0.15s, filter 0.15s;
+}
+.veh-brake.on {
+  fill: #ef4444;
+  filter: drop-shadow(0 0 12px rgba(239, 68, 68, 0.85));
 }
 
-.vehicle-windshield.front {
-  border-radius: 18px 18px 9px 9px;
-  top: 28px;
+/* turn signals */
+.veh-signal {
+  fill: rgba(245, 158, 11, 0.2);
+}
+.veh-signal.blink {
+  animation: vehBlink 0.5s steps(1, end) infinite;
 }
 
-.vehicle-windshield.rear {
-  border-radius: 9px 9px 18px 18px;
-  bottom: 26px;
+@keyframes vehBlink {
+  0%, 49% {
+    fill: #fbbf24;
+    filter: drop-shadow(0 0 12px rgba(245, 158, 11, 0.95));
+  }
+  50%, 100% {
+    fill: rgba(245, 158, 11, 0.2);
+    filter: none;
+  }
 }
 
-.vehicle-roof {
-  background:
-    linear-gradient(90deg, rgba(125, 211, 252, 0.08), rgba(226, 232, 240, 0.12), rgba(15, 23, 42, 0.1)),
-    #182233;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  border-radius: 20px;
-  bottom: 54px;
-  left: 19px;
-  position: absolute;
-  right: 19px;
-  top: 58px;
-}
-
-.hood-lines,
-.trunk-lines {
-  border-left: 1px solid rgba(226, 232, 240, 0.14);
-  border-right: 1px solid rgba(226, 232, 240, 0.14);
-  left: 25px;
-  position: absolute;
-  right: 25px;
-}
-
-.hood-lines {
-  top: 10px;
-  height: 18px;
-}
-
-.trunk-lines {
-  bottom: 9px;
-  height: 16px;
-}
-
-.wheel {
-  background: linear-gradient(90deg, #05070d, #1f2937 45%, #05070d);
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  border-radius: 8px;
-  height: 42px;
-  position: absolute;
-  width: 16px;
-  z-index: 1;
-}
-
-.wheel::after {
-  background: rgba(56, 189, 248, 0.18);
-  border-radius: 999px;
-  content: "";
-  inset: 8px 6px;
-  position: absolute;
-}
-
-.front-left {
-  left: 16px;
-  top: 24px;
-}
-
-.front-right {
-  right: 16px;
-  top: 24px;
-}
-
-.rear-left {
-  bottom: 30px;
-  left: 16px;
-}
-
-.rear-right {
-  bottom: 30px;
-  right: 16px;
-}
-
-.side-mirror {
-  background: #263447;
-  border: 1px solid rgba(148, 163, 184, 0.36);
-  height: 11px;
-  position: absolute;
-  top: 50px;
-  width: 18px;
-  z-index: 3;
-}
-
-.side-mirror.left {
-  border-radius: 10px 2px 2px 10px;
-  left: 9px;
-}
-
-.side-mirror.right {
-  border-radius: 2px 10px 10px 2px;
-  right: 9px;
-}
-
-.headlight,
-.brake-light,
-.corner-signal {
-  border-radius: 999px;
-  position: absolute;
-}
-
-.headlight {
-  background: rgba(226, 232, 240, 0.22);
-  height: 9px;
-  top: 5px;
-  width: 18px;
-}
-
-.headlight.left,
-.brake-light.left {
-  left: 18px;
-}
-
-.headlight.right,
-.brake-light.right {
-  right: 18px;
-}
-
-.headlight.active {
-  background: #f8fafc;
-  box-shadow: 0 -10px 24px rgba(248, 250, 252, 0.38);
-}
-
-.brake-light {
-  background: rgba(239, 68, 68, 0.2);
-  bottom: 5px;
-  height: 9px;
-  width: 18px;
-}
-
-.brake-light.active {
-  background: #ef4444;
-  box-shadow: 0 8px 22px rgba(239, 68, 68, 0.55);
-}
-
-.corner-signal {
-  background: rgba(245, 158, 11, 0.24);
-  height: 11px;
-  opacity: 0.35;
-  width: 9px;
-}
-
-.corner-signal.front-left {
-  left: 6px;
-  top: 18px;
-}
-
-.corner-signal.front-right {
-  right: 6px;
-  top: 18px;
-}
-
-.corner-signal.rear-left {
-  bottom: 17px;
-  left: 6px;
-}
-
-.corner-signal.rear-right {
-  bottom: 17px;
-  right: 6px;
-}
-
-.corner-signal.active {
-  background: #f59e0b;
-  filter: drop-shadow(0 0 16px rgba(245, 158, 11, 0.85));
-  opacity: 1;
-}
+/* direction chips below the car */
 
 .vehicle-light-strip {
   display: grid;

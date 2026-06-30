@@ -12,7 +12,7 @@ export function VehicleCockpit({ telemetry, time }: { telemetry: TelemetryState;
   return (
     <section className="workspace-panel telemetry-card cockpit-card">
       <div className="panel-titlebar">
-        <span>Vehicle Cockpit</span>
+        <span>Araç Kokpiti</span>
         <strong>{time || "--"}</strong>
       </div>
       <div className="cockpit-layout">

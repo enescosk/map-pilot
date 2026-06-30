@@ -58,11 +58,20 @@ export function createTopicHealthService({
     const t = now();
 
     if (kind === "status" && source) {
+      const wasConnected = sources.get(source)?.connected;
+      const isConnected = Boolean(envelope.connected);
       sources.set(source, {
-        connected: Boolean(envelope.connected),
+        connected: isConnected,
         lastStatusMs: t,
         topic: envelope.topic || "",
       });
+      // On a fresh connect, clear the transient connect-retry errors (ECONNREFUSED
+      // while the bridge was coming up) so a healthy live session doesn't show a
+      // stale "N errors" count from before it linked.
+      if (isConnected && !wasConnected) {
+        const backend = topics.get("__backend__");
+        if (backend) { backend.errorCount = 0; backend.lastError = undefined; }
+      }
       return;
     }
 

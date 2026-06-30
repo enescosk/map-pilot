@@ -15,8 +15,8 @@ function DecisionLogPanel({ entries }: DecisionLogPanelProps) {
   return (
     <article className="panel decision-panel">
       <div className="panel-heading">
-        <p className="panel-label">Autonomy</p>
-        <h2>Decision Log</h2>
+        <p className="panel-label">Otonom</p>
+        <h2>Karar Günlüğü</h2>
       </div>
 
       <div className="decision-list">

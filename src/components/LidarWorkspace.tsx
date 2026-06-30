@@ -57,7 +57,7 @@ export function LidarWorkspace({
     <section className="workspace-panel lidar-workspace">
       <div className="panel-titlebar">
         <div className="panel-title-group">
-          <span>Overview</span>
+          <span>Genel Görünüm</span>
           {availableTopics.length > 0 && (
             <select
               className="topic-select"
