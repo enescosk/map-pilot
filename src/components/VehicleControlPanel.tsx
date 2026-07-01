@@ -326,12 +326,11 @@ export function VehicleControlPanel({
       <footer>
         <div className="estop-wrapper">
           <button type="button" className={`control-estop${estopFailed ? " estop-failed" : ""}`} onClick={emergencyStop}>
-            <span className="estop-icon">⬡</span>
-            <span className="estop-label">E-STOP</span>
-            <span className="estop-sub">SPACE</span>
+            <span className="estop-body" />
+            <span className="estop-text">E-STOP</span>
           </button>
           <span className={`control-last${estopFailed ? " control-last--error" : ""}`}>
-            {lastSent || "Komut gönderilmedi"}
+            {lastSent ? lastSent : <>Komut gönderilmedi · <b>SPACE</b> ile tetikle</>}
           </span>
         </div>
       </footer>

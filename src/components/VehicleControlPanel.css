@@ -312,83 +312,84 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 8px;
+  gap: 10px;
 }
 
+/* ── Octagon E-STOP: two stacked octagons give a clean white ring that
+      follows the diagonal edges (an inset border would be clipped away). ── */
 .control-estop {
-  align-items: center;
-  background: linear-gradient(180deg, #991b1b 0%, #7f1d1d 50%, #6b1717 100%);
-  border: 1.5px solid rgba(248, 113, 113, 0.55);
-  border-radius: 10px;
-  box-shadow:
-    inset 0 1px 0 rgba(254, 202, 202, 0.2),
-    inset 0 -3px 8px rgba(0, 0, 0, 0.5),
-    0 0 20px rgba(220, 38, 38, 0.35),
-    0 4px 12px rgba(0, 0, 0, 0.5);
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  justify-content: center;
-  min-height: 64px;
-  padding: 10px 16px;
+  --oct: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
   position: relative;
-  transition: box-shadow 0.12s ease, transform 0.08s ease, background 0.12s ease;
   width: 100%;
+  min-height: 80px;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  background: transparent;
+  filter: drop-shadow(0 0 15px rgba(239, 68, 68, 0.55)) drop-shadow(0 4px 8px rgba(0, 0, 0, 0.5));
+  transition: filter 0.16s ease, transform 0.09s ease;
 }
 
-.estop-icon {
-  color: rgba(254, 202, 202, 0.35);
-  font-size: 0.65rem;
-  letter-spacing: 0.08em;
-  line-height: 1;
-  pointer-events: none;
+/* White border = full-size octagon sitting behind the red body. */
+.control-estop::before {
+  content: "";
   position: absolute;
-  right: 14px;
-  top: 50%;
-  transform: translateY(-50%);
+  inset: 0;
+  clip-path: var(--oct);
+  background: rgba(255, 255, 255, 0.92);
 }
 
-.estop-label {
-  color: #fef2f2;
-  display: block;
+/* Red body = inset octagon on top; the 3px gap reveals the white ring. */
+.estop-body {
+  position: absolute;
+  inset: 3px;
+  clip-path: var(--oct);
+  background: radial-gradient(125% 85% at 50% 10%, #ff6b6b 0%, #e11d1d 42%, #b01212 74%, #880c0c 100%);
+  overflow: hidden;
+}
+
+/* Glossy top sheen inside the body. */
+.estop-body::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 46%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0) 92%);
+}
+
+.estop-text {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
   font-family: var(--mono, ui-monospace, monospace);
-  font-size: 1.05rem;
+  font-size: 1.3rem;
   font-weight: 900;
-  letter-spacing: 0.22em;
-  line-height: 1;
-  text-shadow: 0 0 12px rgba(248, 113, 113, 0.6), 0 1px 3px rgba(0, 0, 0, 0.6);
-  text-transform: uppercase;
-}
-
-.estop-sub {
-  color: rgba(252, 165, 165, 0.5);
-  display: block;
-  font-family: var(--mono, ui-monospace, monospace);
-  font-size: 0.6rem;
-  font-weight: 600;
-  letter-spacing: 0.18em;
-  line-height: 1;
-  margin-top: 3px;
+  letter-spacing: 0.28em;
+  padding-left: 0.28em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.65), 0 0 18px rgba(255, 190, 190, 0.55);
   text-transform: uppercase;
 }
 
 .control-estop:hover {
-  background: linear-gradient(180deg, #b91c1c 0%, #991b1b 50%, #7f1d1d 100%);
-  border-color: rgba(248, 113, 113, 0.8);
-  box-shadow:
-    inset 0 1px 0 rgba(254, 202, 202, 0.25),
-    inset 0 -3px 8px rgba(0, 0, 0, 0.45),
-    0 0 32px rgba(220, 38, 38, 0.6),
-    0 4px 16px rgba(0, 0, 0, 0.55);
+  filter: drop-shadow(0 0 28px rgba(239, 68, 68, 0.9)) drop-shadow(0 4px 10px rgba(0, 0, 0, 0.55));
+}
+
+.control-estop:hover .estop-body {
+  background: radial-gradient(125% 85% at 50% 10%, #ff8585 0%, #ef2323 42%, #c41616 74%, #9a0f0f 100%);
 }
 
 .control-estop:active {
-  background: linear-gradient(180deg, #7f1d1d 0%, #6b1717 100%);
-  box-shadow:
-    inset 0 3px 8px rgba(0, 0, 0, 0.6),
-    0 0 24px rgba(220, 38, 38, 0.5);
-  transform: scale(0.975) translateY(1px);
+  transform: scale(0.965) translateY(1px);
+}
+
+.control-estop:active .estop-body {
+  background: radial-gradient(125% 85% at 50% 10%, #d21818 0%, #a61010 60%, #780b0b 100%);
 }
 
 .control-last {
@@ -400,8 +401,14 @@
   line-height: 1.4;
   overflow: hidden;
   padding: 0 2px;
+  text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.control-last b {
+  color: rgba(148, 163, 184, 0.95);
+  font-weight: 700;
 }
 
 .control-last--error {
@@ -411,14 +418,14 @@
   letter-spacing: 0.06em;
 }
 
+/* Failed state: amber ring + amber glow, blinking. */
 .control-estop.estop-failed {
   animation: estop-blink 0.55s step-start infinite;
-  border-color: rgba(251, 191, 36, 0.7);
-  box-shadow:
-    inset 0 1px 0 rgba(254, 243, 199, 0.15),
-    inset 0 -3px 8px rgba(0, 0, 0, 0.5),
-    0 0 36px rgba(251, 191, 36, 0.75),
-    0 4px 12px rgba(0, 0, 0, 0.5);
+  filter: drop-shadow(0 0 30px rgba(251, 191, 36, 0.85)) drop-shadow(0 4px 8px rgba(0, 0, 0, 0.5));
+}
+
+.control-estop.estop-failed::before {
+  background: rgba(253, 230, 138, 0.95);
 }
 
 @keyframes estop-blink {
