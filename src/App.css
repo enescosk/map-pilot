@@ -438,7 +438,11 @@ button:hover {
 }
 
 .hud-left {
-  grid-template-rows: auto auto auto 1fr;
+  grid-template-rows: none;
+  grid-auto-rows: max-content;
+  align-content: start;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* Cockpit center: vertical stack of cockpit + map, more room since charts moved to hud-right */

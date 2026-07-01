@@ -330,7 +330,7 @@ export function VehicleControlPanel({
             <span className="estop-text">E-STOP</span>
           </button>
           <span className={`control-last${estopFailed ? " control-last--error" : ""}`}>
-            {lastSent ? lastSent : <>Komut gönderilmedi · <b>SPACE</b> ile tetikle</>}
+            {lastSent || "Komut gönderilmedi"}
           </span>
         </div>
       </footer>

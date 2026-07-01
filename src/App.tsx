@@ -7,6 +7,7 @@ import TopicHealthStrip from "./components/TopicHealthStrip";
 import { SparkChart } from "./components/SparkChart";
 import { MapPanel } from "./components/MapPanel";
 import { VehicleCockpit } from "./components/VehicleCockpit";
+import { VehicleControlPanel } from "./components/VehicleControlPanel";
 import { CameraViewer } from "./components/CameraViewer";
 import { LidarWorkspace } from "./components/LidarWorkspace";
 import { useCameraFeed } from "./hooks/useCameraFeed";
@@ -378,6 +379,7 @@ function App() {
               onStopLidar={() => sendMessage({ type: "stop-lidar" })}
             />
           )}
+          <VehicleControlPanel sendMessage={sendMessage} />
           <LatestFramePanel latest={latestFrame} />
         </aside>
 
