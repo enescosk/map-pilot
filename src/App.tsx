@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import ControlPanel from "./components/ControlPanel";
 import ConnectionPanel from "./components/ConnectionPanel";
 import DecisionLogPanel from "./components/DecisionLogPanel";
 import TopicHealthStrip from "./components/TopicHealthStrip";
@@ -368,17 +367,6 @@ function App() {
             connected={backendConnected}
             backendError={backendError}
           />
-          {mode === "debug" && (
-            <ControlPanel
-              isMapping={false}
-              lidarConnected={sourceConnected}
-              backendConnected={backendConnected}
-              onStartMapping={() => {}}
-              onStopMapping={() => {}}
-              onStartLidar={() => sendMessage({ type: "start-lidar" })}
-              onStopLidar={() => sendMessage({ type: "stop-lidar" })}
-            />
-          )}
           <VehicleControlPanel sendMessage={sendMessage} />
           <LatestFramePanel latest={latestFrame} />
         </aside>
