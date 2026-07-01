@@ -111,6 +111,7 @@ export function createVehicleRosSource({ emit, url } = {}) {
     rosSocket = new WebSocket(rosbridgeUrl);
 
     rosSocket.on("open", () => {
+      reconnectDelay = 1000; // reset backoff after successful connect
       connected = true;
       emit(getStatus());
       subscribe();

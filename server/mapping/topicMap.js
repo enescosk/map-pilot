@@ -9,7 +9,6 @@
 // Numeric leaves are emitted as { value, unit } envelopes per the canonical
 // schema. The legacy adapter unwraps them for today's dashboard.
 
-import { mpsToKmh } from "./units.js";
 import { numberOrUndefined, scaledNumberOrUndefined } from "../normalizers/helpers.js";
 import { modeLabel } from "../normalizers/vehicle.js";
 

@@ -279,6 +279,7 @@ wss.on("connection", (ws) => {
         latestTelemetryEnvelope = undefined;
         telemetrySnapshot = {};
         telemetryStore.reset();
+        topicHealthService.reset();
         setLidarSource(createLidarSource(source, rosbridgeUrl, mqttUrl));
         lidarSource.start();
         broadcast({ type: "source-changed", source });
