@@ -288,10 +288,16 @@ wss.on("connection", (ws) => {
       }
 
       if (payload.type === "control-command") {
+        // Rate limit per-topic (20 Hz each), not per-connection. A global cap
+        // would drop the second of two commands sent in the same tick — e.g.
+        // E-STOP fires /brake_control and /autonomous_mode_selection back to
+        // back, and a busy steering stream must never block a brake/mode command.
         const now = Date.now();
-        const lastSent = ws._lastControlSentAt || 0;
-        if (now - lastSent < 50) return; // 20 Hz cap
-        ws._lastControlSentAt = now;
+        if (!ws._lastControlSentAt) ws._lastControlSentAt = Object.create(null);
+        const topicKey = String(payload.topic || "");
+        const lastSent = ws._lastControlSentAt[topicKey] || 0;
+        if (now - lastSent < 50) return; // 20 Hz cap per topic
+        ws._lastControlSentAt[topicKey] = now;
         const result = controlPublisher.publish({
           topic: payload.topic,
           msgType: payload.msgType,
