@@ -38,3 +38,6 @@ Thumbs.db
 # Temp
 *.tmp
 *.temp
+
+# Demo launcher runtime state (pids + logs)
+scripts/.demo/
