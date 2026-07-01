@@ -318,10 +318,17 @@
 /* ── Octagon E-STOP: two stacked octagons give a clean white ring that
       follows the diagonal edges (an inset border would be clipped away). ── */
 .control-estop {
-  --oct: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
+  /* Fixed 22px corner bevels (not %) so the octagon keeps proper 45° corners
+     at any panel width instead of stretching flat when the sidebar is wide. */
+  --oct: polygon(
+    22px 0, calc(100% - 22px) 0,
+    100% 22px, 100% calc(100% - 22px),
+    calc(100% - 22px) 100%, 22px 100%,
+    0 calc(100% - 22px), 0 22px
+  );
   position: relative;
   width: 100%;
-  min-height: 80px;
+  min-height: 72px;
   border: none;
   padding: 0;
   cursor: pointer;
