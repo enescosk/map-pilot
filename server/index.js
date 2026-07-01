@@ -143,6 +143,15 @@ function packPointCloudBinary(envelope) {
 }
 
 function broadcast(envelope) {
+  // No connected clients → skip packing/serialization entirely. Point-cloud
+  // packing and large-envelope JSON.stringify are the two most expensive steps
+  // here; there's no point paying for them when nobody is listening.
+  let hasOpenClient = false;
+  for (const client of wss.clients) {
+    if (client.readyState === 1) { hasOpenClient = true; break; }
+  }
+  if (!hasOpenClient) return;
+
   // Hot path: point-cloud → binary frame. Everything else → JSON.
   const isBinaryEligible = envelope?.type === "point-cloud" && Array.isArray(envelope.points) && envelope.points.length > 0;
   const payload = isBinaryEligible ? packPointCloudBinary(envelope) : JSON.stringify(envelope);

@@ -9,15 +9,9 @@ export function createRosBridgeLidarSource({ emit, url } = {}) {
   let rosSocket;
   let subscribed = false;
   let connected = false;
-
-  function emitStatus() {
-    emit({
-      type: "status",
-      connected,
-      source: "rosbridge",
-      topic: ROS_SCAN_TOPIC,
-    });
-  }
+  let stopped = false;
+  let reconnectTimer;
+  let reconnectDelay = 1000;
 
   function getStatus() {
     return {
@@ -26,6 +20,10 @@ export function createRosBridgeLidarSource({ emit, url } = {}) {
       source: "rosbridge",
       topic: ROS_SCAN_TOPIC,
     };
+  }
+
+  function emitStatus() {
+    emit(getStatus());
   }
 
   function subscribeToScan() {
@@ -58,36 +56,58 @@ export function createRosBridgeLidarSource({ emit, url } = {}) {
       }),
     );
     subscribed = false;
-    connected = false;
-    emitStatus();
   }
 
-  function connect() {
-    if (rosSocket && rosSocket.readyState <= WebSocket.OPEN) {
-      subscribeToScan();
-      return;
+  function scheduleReconnect() {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(() => {
+      if (!stopped) {
+        rosSocket = undefined;
+        start();
+        reconnectDelay = Math.min(reconnectDelay * 2, 30_000);
+      }
+    }, reconnectDelay);
+  }
+
+  function start() {
+    stopped = false;
+    if (rosSocket) {
+      if (rosSocket.readyState === WebSocket.OPEN) {
+        subscribeToScan();
+        return;
+      }
+      // Stale socket in a non-OPEN state — close it cleanly before reconnecting.
+      rosSocket.close();
+      rosSocket = undefined;
+      subscribed = false;
     }
 
     rosSocket = new WebSocket(rosbridgeUrl);
 
     rosSocket.on("open", () => {
+      // Reset the backoff after a successful link so a later drop retries fast.
+      reconnectDelay = 1000;
       subscribeToScan();
     });
 
     rosSocket.on("message", (data) => {
-      const packet = JSON.parse(data.toString());
-      if (packet.op !== "publish" || packet.topic !== ROS_SCAN_TOPIC) {
-        return;
-      }
+      try {
+        const packet = JSON.parse(data.toString());
+        if (packet.op !== "publish" || packet.topic !== ROS_SCAN_TOPIC) {
+          return;
+        }
 
-      const readings = laserScanToReadings(packet.msg);
-      if (readings.length > 0) {
-        emit({
-          type: "scan",
-          readings,
-          source: "rosbridge",
-          topic: ROS_SCAN_TOPIC,
-        });
+        const readings = laserScanToReadings(packet.msg);
+        if (readings.length > 0) {
+          emit({
+            type: "scan",
+            readings,
+            source: "rosbridge",
+            topic: ROS_SCAN_TOPIC,
+          });
+        }
+      } catch (error) {
+        emit({ type: "backend-error", message: `Invalid ROS scan packet: ${error.message}` });
       }
     });
 
@@ -95,21 +115,26 @@ export function createRosBridgeLidarSource({ emit, url } = {}) {
       subscribed = false;
       connected = false;
       emitStatus();
+      if (!stopped) scheduleReconnect();
     });
 
     rosSocket.on("error", (error) => {
-      console.error("ROS bridge error:", error.message);
-      connected = false;
-      emitStatus();
+      emit({ type: "backend-error", message: `ROS bridge error: ${error.message}` });
     });
   }
 
-  function start() {
-    connect();
-  }
-
   function stop() {
+    stopped = true;
+    clearTimeout(reconnectTimer);
+    reconnectDelay = 1000;
     unsubscribeFromScan();
+    if (rosSocket) {
+      rosSocket.close();
+      rosSocket = undefined;
+    }
+    connected = false;
+    subscribed = false;
+    emitStatus();
   }
 
   return {

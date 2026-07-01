@@ -7,8 +7,7 @@
 // the legacy path is skipped for that frame. See routeThroughTopicMap below.
 
 import { laserScanToReadings } from "./laserScan.js";
-import { pointCloudToReadings } from "./pointCloud.js";
-import { pointCloud2ToReadings, pointCloud2ToPoints } from "./pointCloud2.js";
+import { pointCloud2ToPoints } from "./pointCloud2.js";
 import { compressedImageToSource, imageToSource, rawImageToSource } from "./image.js";
 import { normalizeDerivedTelemetry } from "./derivedTelemetry.js";
 import { normalizeVehicleTelemetry } from "./vehicle.js";
@@ -100,12 +99,14 @@ function normalizeFrameLegacy({ message, type, topic, time, source }) {
     lowerTopic === "/cloud" ||
     lowerTopic.endsWith("/cloud")
   ) {
-    const readings = message.data ? pointCloud2ToReadings(message) : pointCloudToReadings(message);
+    // The dashboard renders point clouds from `points` only (see the worker's
+    // point-cloud branch) and the WS binary frame packs `points` alone, so the
+    // 2D `readings` projection would be computed and immediately discarded.
+    // Skip it entirely on the hot path.
     const points = message.data ? pointCloud2ToPoints(message) : message.points || [];
-    if (readings.length > 0 || points.length > 0) {
+    if (points.length > 0) {
       return {
         type: "point-cloud",
-        readings,
         points,
         source,
         topic,

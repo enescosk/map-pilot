@@ -162,6 +162,78 @@ describe("MQTT client lifecycle", () => {
   });
 });
 
+// ─── value sanitization (safety clamp) ────────────────────────────────────────
+
+describe("publish — value sanitization", () => {
+  function sentMessage() {
+    return JSON.parse(mockPublish.mock.calls[0][1]).message;
+  }
+
+  it("clamps an out-of-range steering angle to the max", () => {
+    const pub = createControlPublisher();
+    const result = pub.publish({ topic: "/steer_control", message: { desired_angle: 9999 } });
+    expect(result.ok).toBe(true);
+    expect(sentMessage()).toEqual({ desired_angle: 720 });
+  });
+
+  it("clamps a negative steering angle to the min", () => {
+    const pub = createControlPublisher();
+    pub.publish({ topic: "/steer_control", message: { desired_angle: -9999 } });
+    expect(sentMessage()).toEqual({ desired_angle: -720 });
+  });
+
+  it("clamps brake_percent above 100 down to 100", () => {
+    const pub = createControlPublisher();
+    pub.publish({ topic: "/brake_control", message: { brake_percent: 150 } });
+    expect(sentMessage()).toEqual({ brake_percent: 100 });
+  });
+
+  it("passes an in-range value through unchanged", () => {
+    const pub = createControlPublisher();
+    pub.publish({ topic: "/steer_control", message: { desired_angle: 15, desired_angle_speed: 3 } });
+    expect(sentMessage()).toEqual({ desired_angle: 15, desired_angle_speed: 3 });
+  });
+
+  it("rejects a non-finite numeric command without publishing", () => {
+    const pub = createControlPublisher();
+    const result = pub.publish({ topic: "/steer_control", message: { desired_angle: "abc" } });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/finite number/);
+    expect(mockPublish).not.toHaveBeenCalled();
+  });
+
+  it("rejects Infinity", () => {
+    const pub = createControlPublisher();
+    expect(pub.publish({ topic: "/brake_control", message: { brake_percent: Infinity } }).ok).toBe(false);
+  });
+
+  it("drops unknown keys not in the field whitelist", () => {
+    const pub = createControlPublisher();
+    pub.publish({ topic: "/steer_control", message: { desired_angle: 10, __proto__: 1, evil: 42 } });
+    expect(sentMessage()).toEqual({ desired_angle: 10 });
+  });
+
+  it("forwards flag fields unchanged (passthrough)", () => {
+    const pub = createControlPublisher();
+    pub.publish({ topic: "/throttle_control", message: { setSpeed_kmh: 40, cruiseActive: true } });
+    expect(sentMessage()).toEqual({ setSpeed_kmh: 40, cruiseActive: true });
+  });
+
+  it("accepts a valid mode selection", () => {
+    const pub = createControlPublisher();
+    const result = pub.publish({ topic: "/autonomous_mode_selection", message: { mode: 1 } });
+    expect(result.ok).toBe(true);
+    expect(sentMessage()).toEqual({ mode: 1 });
+  });
+
+  it("rejects an out-of-range mode instead of clamping it", () => {
+    const pub = createControlPublisher();
+    const result = pub.publish({ topic: "/autonomous_mode_selection", message: { mode: 99 } });
+    expect(result.ok).toBe(false);
+    expect(mockPublish).not.toHaveBeenCalled();
+  });
+});
+
 // ─── allowed export ───────────────────────────────────────────────────────────
 
 describe("allowed", () => {

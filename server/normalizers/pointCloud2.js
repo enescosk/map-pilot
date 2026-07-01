@@ -4,6 +4,14 @@
 
 import { MAX_SCAN_POINTS, MAX_POINT_CLOUD_POINTS } from "../config/env.js";
 
+// Round to 3 decimals without the string round-trip of `Number(n.toFixed(3))`.
+// On the point-cloud hot path this runs up to ~320k times per frame; toFixed
+// allocates a string + reparses each call, and the value is packed to Float32
+// (truncated) for the WS binary frame anyway.
+function round3(n) {
+  return Math.round(n * 1000) / 1000;
+}
+
 function findPointField(message, name) {
   return message?.fields?.find((field) => field.name === name);
 }
@@ -115,10 +123,10 @@ export function pointCloud2ToPoints(message) {
     }
 
     points.push({
-      x: Number(x.toFixed(3)),
-      y: Number(y.toFixed(3)),
-      z: Number(z.toFixed(3)),
-      intensity: Number((Number.isFinite(intensity) ? intensity : 0).toFixed(3)),
+      x: round3(x),
+      y: round3(y),
+      z: round3(z),
+      intensity: round3(Number.isFinite(intensity) ? intensity : 0),
     });
   }
 
