@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   speedFromTwist,
+  speedFromGps,
   steeringAngleFromYaw,
   rpmFromSpeed,
   pedalsFromAccel,
@@ -9,6 +10,17 @@ import {
   turnIntentFromHeadingRate,
   createVehicleDeriver,
 } from "../sources/deriveVehicleTelemetry.js";
+
+describe("speedFromGps", () => {
+  it("derives ground speed from a haversine position delta", () => {
+    // 0.001° longitude at the equator ≈ 111.32 m; over 1 s that's ~111.3 m/s.
+    expect(speedFromGps(0, 0, 0, 0.001, 1)).toBeCloseTo(111.3, 0);
+  });
+  it("returns 0 for missing coords or non-positive dt", () => {
+    expect(speedFromGps(undefined, 0, 0, 0.001, 1)).toBe(0);
+    expect(speedFromGps(0, 0, 0, 0.001, 0)).toBe(0);
+  });
+});
 
 describe("speedFromTwist", () => {
   it("returns hypot of x/y (ground speed)", () => {
@@ -225,6 +237,17 @@ describe("createVehicleDeriver", () => {
     );
     expect(patch).not.toBeNull();
     expect(patch.speed).toBeCloseTo(9, 1); // odometry value, not the stale 5
+  });
+
+  it("prefers GPS-position speed over the (biased) odometry twist", () => {
+    const d = createVehicleDeriver();
+    // Odometry reports an inflated 50 m/s...
+    d.update("/ekf/odometry_earth", "nav_msgs/Odometry", { twist: { twist: { linear: { x: 50, y: 0 } } } }, 1000);
+    // ...but GPS position moved 0.0001° lon at the equator over 1 s ≈ 11.1 m/s.
+    d.ingest("/navsatfix", "sensor_msgs/NavSatFix", { latitude: 0, longitude: 0 }, 1000);
+    const patch = d.ingest("/navsatfix", "sensor_msgs/NavSatFix", { latitude: 0, longitude: 0.0001 }, 2000);
+    expect(patch).not.toBeNull();
+    expect(patch.speed).toBeCloseTo(11.13, 0); // GPS ground truth, not odom's 50
   });
 
   it("prefers fresh GNSS velocity over odometry", () => {

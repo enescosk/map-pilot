@@ -35,7 +35,12 @@ const DEFAULTS = {
   maxDecel: 3.0,            // m/s^2 mapped to 100% brake
   accelDeadbandMps2: 0.2,   // ignore tiny accel noise around 0
   emitIntervalMs: 66,       // throttle output to ~15 Hz
-  gnssVelFreshMs: 1000,     // if no /gnss_1/velocity within this window, fall back to odometry speed
+  // Speed source freshness: a higher-priority source (GNSS velocity > GPS
+  // position > odometry) is used only while it has produced a sample within this
+  // window; once it goes silent the next source takes over. Prevents both the
+  // "frozen at last sample" bug and stale sources masking a live one.
+  speedStaleMs: 1500,
+  gpsSpeedSmoothing: 0.4,   // low-pass weight for new GPS-derived speed (0..1)
   // Turn signals are driven by how fast the heading is changing (deg/s), which
   // tracks real cornering far more reliably than the small derived steering
   // angle (real bags show only a few degrees of derived steer through a 90°+
@@ -55,6 +60,25 @@ export function speedFromTwist(twistLinear) {
   const x = numberOrUndefined(twistLinear?.x) || 0;
   const y = numberOrUndefined(twistLinear?.y) || 0;
   return Math.hypot(x, y);
+}
+
+// Ground speed (m/s) between two GPS fixes via the haversine great-circle
+// distance over the elapsed time. This tracks the real drive far better than the
+// /ekf/odometry_earth twist, whose magnitude runs ~2–3× the true ground speed.
+export function speedFromGps(prevLat, prevLon, lat, lon, dtSec) {
+  const a1 = numberOrUndefined(prevLat);
+  const o1 = numberOrUndefined(prevLon);
+  const a2 = numberOrUndefined(lat);
+  const o2 = numberOrUndefined(lon);
+  if (a1 === undefined || o1 === undefined || a2 === undefined || o2 === undefined || !(dtSec > 0)) {
+    return 0;
+  }
+  const R = 6371000; // Earth radius (m)
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(a2 - a1);
+  const dLon = toRad(o2 - o1);
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a1)) * Math.cos(toRad(a2)) * Math.sin(dLon / 2) ** 2;
+  return (2 * R * Math.asin(Math.min(1, Math.sqrt(s)))) / dtSec;
 }
 
 // Bicycle-model steering angle (deg) from yaw rate (rad/s) and speed (m/s).
@@ -122,8 +146,18 @@ export function createVehicleDeriver(options = {}) {
   const opts = { ...DEFAULTS, ...options };
 
   const state = {
-    speedMps: undefined,
-    lastGnssVelMs: -Infinity, // when we last got a fresh /gnss_1/velocity sample
+    // Speed is drawn from the freshest high-priority source (see pickSpeed):
+    //   GNSS velocity  >  GPS-position haversine  >  odometry twist.
+    speedMps: undefined,      // last emitted/selected speed (also read by tests)
+    speedGnssMps: undefined,
+    speedGnssMs: -Infinity,
+    speedGpsMps: undefined,
+    speedGpsMs: -Infinity,
+    speedOdomMps: undefined,
+    speedOdomMs: -Infinity,
+    lastGpsLat: undefined,    // previous fix, for haversine speed
+    lastGpsLon: undefined,
+    lastGpsMs: undefined,
     yawRateRadps: undefined,
     accelXMps2: undefined,
     heading: undefined,
@@ -150,19 +184,41 @@ export function createVehicleDeriver(options = {}) {
     if (t.endsWith("/velocity") || ty.includes("twistwithcovariance")) {
       const linear = msg?.twist?.twist?.linear ?? msg?.twist?.linear;
       if (linear) {
-        state.speedMps = speedFromTwist(linear);
-        state.lastGnssVelMs = nowMs;
+        state.speedGnssMps = speedFromTwist(linear);
+        state.speedGnssMs = nowMs;
+      }
+      return;
+    }
+    if (ty.includes("navsatfix") || t.endsWith("/navsatfix") || t.endsWith("/fix")) {
+      // GPS-position ground speed — the trustworthy fallback when GNSS velocity
+      // isn't published. Low-passed to tame per-fix jitter.
+      const lat = numberOrUndefined(msg?.latitude);
+      const lon = numberOrUndefined(msg?.longitude);
+      const status = msg?.status?.status; // sensor_msgs/NavSatStatus: -1 = no fix
+      if (lat !== undefined && lon !== undefined && !(status !== undefined && status < 0)) {
+        if (state.lastGpsLat !== undefined && state.lastGpsMs !== undefined) {
+          const dt = (nowMs - state.lastGpsMs) / 1000;
+          if (dt > 0 && dt < 2) {
+            const raw = speedFromGps(state.lastGpsLat, state.lastGpsLon, lat, lon, dt);
+            const k = opts.gpsSpeedSmoothing;
+            state.speedGpsMps = state.speedGpsMps === undefined ? raw : (1 - k) * state.speedGpsMps + k * raw;
+            state.speedGpsMs = nowMs;
+          }
+        }
+        state.lastGpsLat = lat;
+        state.lastGpsLon = lon;
+        state.lastGpsMs = nowMs;
       }
       return;
     }
     if (ty.includes("odometry") || t.includes("odom")) {
-      // Odometry is the fallback speed source. GNSS velocity is preferred, but
-      // some bag segments stop publishing /gnss_1/velocity mid-loop — so we take
-      // over from odometry whenever GNSS has gone stale, not just on the very
-      // first sample (otherwise speed freezes at the last GNSS value).
-      if (nowMs - state.lastGnssVelMs > opts.gnssVelFreshMs) {
-        const linear = msg?.twist?.twist?.linear;
-        if (linear) state.speedMps = speedFromTwist(linear);
+      // Last-resort speed source. The /ekf/odometry_earth twist magnitude runs
+      // ~2–3× true ground speed here, so it's only used when neither GNSS
+      // velocity nor GPS position is available (see pickSpeed priority).
+      const linear = msg?.twist?.twist?.linear;
+      if (linear) {
+        state.speedOdomMps = speedFromTwist(linear);
+        state.speedOdomMs = nowMs;
       }
       return;
     }
@@ -192,14 +248,27 @@ export function createVehicleDeriver(options = {}) {
     }
   }
 
+  // Choose ground speed from the freshest high-priority source. GNSS velocity is
+  // best when present; GPS-position haversine is the trustworthy fallback; the
+  // odometry twist (biased high) is only a last resort. A source counts only
+  // while it produced a sample within speedStaleMs, so a source going silent
+  // hands off instead of freezing the reading.
+  function pickSpeed(nowMs) {
+    const fresh = (ms) => nowMs - ms <= opts.speedStaleMs;
+    if (state.speedGnssMps !== undefined && fresh(state.speedGnssMs)) return state.speedGnssMps;
+    if (state.speedGpsMps !== undefined && fresh(state.speedGpsMs)) return state.speedGpsMps;
+    if (state.speedOdomMps !== undefined && fresh(state.speedOdomMs)) return state.speedOdomMps;
+    return undefined;
+  }
+
   // Build a legacy-shaped telemetry patch from current state, or null if we
   // don't have enough yet / it's too soon since the last emit.
   function buildPatch(nowMs) {
-    if (state.speedMps === undefined) return null;
+    const speedMps = pickSpeed(nowMs);
+    if (speedMps === undefined) return null;
     if (nowMs - state.lastEmitMs < opts.emitIntervalMs) return null;
     state.lastEmitMs = nowMs;
-
-    const speedMps = state.speedMps;
+    state.speedMps = speedMps;
     const vehicle = {
       synthetic: true,
       speedKmh: Number((speedMps * 3.6).toFixed(2)),
