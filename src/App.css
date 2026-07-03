@@ -91,7 +91,7 @@
 .brand-block {
   align-items: center;
   display: flex;
-  gap: 14px;
+  gap: 22px;
 }
 
 .brand-logo {
@@ -843,7 +843,7 @@ button:hover {
   border-top: 1px solid rgba(56, 189, 248, 0.08);
   display: grid;
   gap: 1px;
-  grid-template-columns: minmax(112px, auto) minmax(116px, 140px) minmax(150px, 1fr) minmax(74px, auto) minmax(78px, auto);
+  grid-template-columns: minmax(112px, auto) minmax(180px, 1fr) minmax(74px, auto) minmax(78px, auto);
   min-height: 52px;
   padding: 8px 10px;
 }
@@ -892,6 +892,7 @@ button:hover {
 
 .size-control input {
   accent-color: #38bdf8;
+  flex: 1;
   min-width: 96px;
 }
 
@@ -910,7 +911,7 @@ button:hover {
 
 @media (max-width: 1260px) {
   .lidar-tool-strip {
-    grid-template-columns: repeat(5, minmax(0, auto));
+    grid-template-columns: repeat(4, minmax(0, auto));
   }
 
   .control-caption {
