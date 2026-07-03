@@ -9,7 +9,13 @@ export function vectorMagnitude(vector?: Vector3) {
 }
 
 export function formatNumber(value?: number, digits = 2) {
-  return Number.isFinite(value) ? Number(value).toFixed(digits) : "--";
+  if (!Number.isFinite(value)) {
+    return "--";
+  }
+  // Normalize negative zero so tiny negative readings (e.g. steering ≈ -0.001)
+  // don't render as "-0".
+  const rounded = Number(Number(value).toFixed(digits));
+  return (rounded === 0 ? 0 : rounded).toFixed(digits);
 }
 
 export function formatDuration(seconds?: number) {
