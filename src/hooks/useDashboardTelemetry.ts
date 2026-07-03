@@ -8,6 +8,15 @@ const MAX_SERIES_POINTS = 80;
 const MAX_COCKPIT_EVENTS = 120;
 // Minimum ms between React state flushes for telemetry (targets ~30 fps UI updates)
 const TELEMETRY_FLUSH_MS = 33;
+// Hard cap on buffered-but-not-yet-flushed telemetry patches. The flush is
+// scheduled via requestAnimationFrame, which the browser PAUSES while the tab is
+// backgrounded — meanwhile WS telemetry keeps arriving at ~160/s and pushing to
+// the buffer. Without this cap the buffer grows without bound (tens of thousands
+// of entries over a few minutes away from the tab), exhausting memory and then
+// blocking the main thread for seconds when it finally drains on return. The
+// merge is cumulative so keeping only the most recent frames preserves the latest
+// state; at ~160/s this is ~1.5 s of history, plenty for a smooth catch-up.
+const MAX_PENDING_TELEMETRY = 240;
 // Median window for the CAN speed stream. The raw signal is salt-and-pepper
 // noisy (isolated single-frame spikes/dropouts at ~48 Hz); an odd 5-sample
 // median (~100 ms) rejects lone outliers without freezing on a stale value.
@@ -181,7 +190,15 @@ export function useDashboardTelemetry() {
   const handleTelemetryMessage = useCallback((packet: TelemetryMessage) => {
     const label = timeLabel(packet.time);
     const isDerived = packet.telemetry?.derived === true;
-    pendingRef.current.push({ patch: packet.telemetry, label, isDerived });
+    const pending = pendingRef.current;
+    pending.push({ patch: packet.telemetry, label, isDerived });
+    // Bound the buffer so a stalled flush (backgrounded tab: rAF paused while WS
+    // keeps delivering) can't grow it without limit and then freeze the main
+    // thread when it finally drains. Drop the oldest frames — the merge is
+    // cumulative, so the newest frames still yield the correct latest state.
+    if (pending.length > MAX_PENDING_TELEMETRY) {
+      pending.splice(0, pending.length - MAX_PENDING_TELEMETRY);
+    }
 
     // Schedule a flush on the next animation frame, throttled to TELEMETRY_FLUSH_MS
     if (!rafRef.current) {
