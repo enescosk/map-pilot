@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import type { CameraStatus } from "../types/liveMessages";
 import { EmptyState } from "./EmptyState";
 
-export function CameraViewer({ camera }: { camera: CameraStatus }) {
+function CameraViewerImpl({ camera }: { camera: CameraStatus }) {
   const [displaySrc, setDisplaySrc] = useState(camera.frameSrc || "");
   const cameraSrc = camera.streamUrl || displaySrc;
 
@@ -48,3 +48,5 @@ export function CameraViewer({ camera }: { camera: CameraStatus }) {
     </section>
   );
 }
+
+export const CameraViewer = memo(CameraViewerImpl);

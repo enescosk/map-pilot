@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import type { TelemetryState } from "../types/telemetry";
 import { formatBoolean, formatGear, formatNumber } from "../utils/telemetryFormatters";
 import { SpeedGauge } from "./SpeedGauge";
@@ -29,7 +29,7 @@ function CockpitMetric({
   );
 }
 
-export function VehicleCockpit({ telemetry, time }: { telemetry: TelemetryState; time?: string }) {
+function VehicleCockpitImpl({ telemetry, time }: { telemetry: TelemetryState; time?: string }) {
   const vehicle = telemetry.vehicle;
   const hasTelemetry = telemetry.derived || telemetry.heading !== undefined || Object.values(vehicle).some((value) => value !== undefined);
   const gps = telemetry.gps || {};
@@ -102,3 +102,5 @@ export function VehicleCockpit({ telemetry, time }: { telemetry: TelemetryState;
     </section>
   );
 }
+
+export const VehicleCockpit = memo(VehicleCockpitImpl);

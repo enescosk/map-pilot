@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import type { GpsFix } from "../types/telemetry";
 import { formatNumber } from "../utils/telemetryFormatters";
 import { EmptyState } from "./EmptyState";
@@ -8,7 +8,7 @@ type GpsTrailPoint = {
   longitude: number;
 };
 
-export function MapPanel({ gps, speed }: { gps: GpsFix; speed: number }) {
+function MapPanelImpl({ gps, speed }: { gps: GpsFix; speed: number }) {
   const lat = Number(gps.latitude);
   const lon = Number(gps.longitude);
   const hasFix = Number.isFinite(lat) && Number.isFinite(lon);
@@ -42,3 +42,5 @@ export function MapPanel({ gps, speed }: { gps: GpsFix; speed: number }) {
     </section>
   );
 }
+
+export const MapPanel = memo(MapPanelImpl);

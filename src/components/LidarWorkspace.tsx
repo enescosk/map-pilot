@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import type { LidarReading } from "../types/liveMessages";
 import type { TelemetryState } from "../types/telemetry";
 import { chooseBestPointCloudTopic, type LidarCloudState } from "../utils/lidarProcessing";
@@ -7,7 +7,7 @@ import { Lidar3D, type LidarColorMode } from "./Lidar3D";
 
 type LidarMode = "2d" | "3d";
 
-export function LidarWorkspace({
+function LidarWorkspaceImpl({
   readings,
   pointClouds,
   activeTopic,
@@ -125,3 +125,5 @@ export function LidarWorkspace({
     </section>
   );
 }
+
+export const LidarWorkspace = memo(LidarWorkspaceImpl);
