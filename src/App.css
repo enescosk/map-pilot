@@ -441,6 +441,7 @@ button:hover {
   grid-template-rows: none;
   grid-auto-rows: max-content;
   align-content: start;
+  gap: 9px;
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -1394,7 +1395,8 @@ button:hover {
 
 .topic-workspace {
   display: grid;
-  grid-template-rows: auto 1fr minmax(92px, auto);
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 84px;
 }
 
 .topic-scroll {
@@ -1439,6 +1441,8 @@ button:hover {
   border-top: 1px solid #2e343e;
   display: grid;
   gap: 6px;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
   padding: 10px;
 }
 
@@ -1453,7 +1457,7 @@ button:hover {
 .latest-payload code {
   color: #9aa7bd;
   font-size: 0.72rem;
-  max-height: 64px;
+  max-height: 46px;
   overflow: auto;
   white-space: pre-wrap;
 }
@@ -1686,8 +1690,8 @@ button:hover {
 .connection-panel {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px;
+  gap: 8px;
+  padding: 12px 14px;
 }
 
 .connection-panel h2 {
