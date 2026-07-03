@@ -127,10 +127,34 @@ function publishCanonicalPatch(client, root, payload) {
   }
 }
 
+// The vehicle-ros hot path now carries point clouds as a packed Float32Array
+// (envelope.xyzi + n) instead of an object list, to skip per-point allocation on
+// the WS path. Rebuild the {x,y,z,intensity} objects here so the MQTT event JSON
+// shape stays exactly as before (this runs only when MQTT publishing is enabled).
+function envelopeForJson(envelope) {
+  if (envelope.type !== "point-cloud" || !(envelope.xyzi instanceof Float32Array)) {
+    return envelope;
+  }
+  const { xyzi, n } = envelope;
+  const points = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const o = i * 4;
+    points[i] = { x: xyzi[o], y: xyzi[o + 1], z: xyzi[o + 2], intensity: xyzi[o + 3] };
+  }
+  return {
+    type: envelope.type,
+    points,
+    source: envelope.source,
+    topic: envelope.topic,
+    time: envelope.time,
+    frameId: envelope.frameId || "",
+  };
+}
+
 function publishEventsAndHealth(client, root, envelope) {
   if (!client?.connected || !envelope || typeof envelope !== "object") return;
   const eventType = typeof envelope.type === "string" ? envelope.type : "message";
-  client.publish(`${root}/events/${eventType}`, JSON.stringify(envelope));
+  client.publish(`${root}/events/${eventType}`, JSON.stringify(envelopeForJson(envelope)));
 
   if (envelope.type === "status") {
     client.publish(

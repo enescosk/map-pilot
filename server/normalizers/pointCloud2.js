@@ -132,3 +132,59 @@ export function pointCloud2ToPoints(message) {
 
   return points;
 }
+
+// Fast path: decode a PointCloud2 straight into a packed Float32 xyzi buffer,
+// skipping the intermediate array of {x,y,z,intensity} JS objects. Same fields,
+// same subsampling step, same round3 + filters as pointCloud2ToPoints, so the
+// resulting floats are byte-identical to what packPointCloudBinary produced from
+// that object array — it just avoids allocating ~N objects per frame on the hot
+// path. Returns { xyzi: Float32Array (x,y,z,i interleaved, length n*4), n }.
+export function pointCloud2ToFloat32(message) {
+  const data = message?.data;
+  const xField = findPointField(message, "x");
+  const yField = findPointField(message, "y");
+  const zField = findPointField(message, "z");
+  const intensityField = findPointField(message, "intensity");
+  const pointStep = Number(message?.point_step || 0);
+  const pointCount = Number(message?.width || 0) * Number(message?.height || 0);
+
+  if (!data || !xField || !yField || pointStep <= 0 || pointCount <= 0) {
+    return { xyzi: new Float32Array(0), n: 0 };
+  }
+
+  const buffer = toPointCloudBuffer(data);
+  const step = Math.max(1, Math.ceil(pointCount / MAX_POINT_CLOUD_POINTS));
+  const isBig = message.is_bigendian;
+  // Upper bound on kept points (before finite/origin filtering) → allocate once.
+  const maxOut = Math.ceil(pointCount / step);
+  const xyzi = new Float32Array(maxOut * 4);
+  let n = 0;
+
+  for (let pointIndex = 0; pointIndex < pointCount; pointIndex += step) {
+    const baseOffset = pointIndex * pointStep;
+    const x = readField(buffer, baseOffset + xField.offset, xField.datatype, isBig);
+    const y = readField(buffer, baseOffset + yField.offset, yField.datatype, isBig);
+    const z = zField ? readField(buffer, baseOffset + zField.offset, zField.datatype, isBig) : 0;
+    const intensity = intensityField
+      ? readField(buffer, baseOffset + intensityField.offset, intensityField.datatype, isBig)
+      : 0;
+
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+      continue;
+    }
+
+    if (x === 0 && y === 0 && z === 0) {
+      continue;
+    }
+
+    const o = n * 4;
+    xyzi[o] = round3(x);
+    xyzi[o + 1] = round3(y);
+    xyzi[o + 2] = round3(z);
+    xyzi[o + 3] = round3(Number.isFinite(intensity) ? intensity : 0);
+    n += 1;
+  }
+
+  // subarray is a zero-copy view onto the exact filled range.
+  return { xyzi: xyzi.subarray(0, n * 4), n };
+}

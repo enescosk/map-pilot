@@ -112,8 +112,12 @@ const MAX_BUFFERED_BYTES = 512 * 1024; // 512 KB — drop slow clients rather th
  * and lets the worker wrap the payload as a typed array with zero copy.
  */
 function packPointCloudBinary(envelope) {
-  const points = envelope.points || [];
-  const n = points.length;
+  // Two producers: the vehicle-ros hot path hands us a packed Float32Array
+  // (envelope.xyzi, already round3'd) so we can copy its bytes directly; the
+  // synthetic source (and legacy pre-parsed inputs) hand us {x,y,z,i} objects.
+  const hasXyzi = envelope.xyzi instanceof Float32Array;
+  const points = hasXyzi ? null : (envelope.points || []);
+  const n = hasXyzi ? envelope.n : points.length;
   const header = {
     type: "point-cloud-binary",
     topic: envelope.topic || "",
@@ -130,14 +134,22 @@ function packPointCloudBinary(envelope) {
   const headerBuf = padBytes === 0 ? headerJson : Buffer.concat([headerJson, Buffer.alloc(padBytes, 0x20)]);
   const headerLen = Buffer.alloc(4);
   headerLen.writeUInt32LE(headerBuf.length, 0);
-  const xyzi = Buffer.alloc(n * 16); // 4 floats × 4 bytes
-  for (let i = 0; i < n; i++) {
-    const p = points[i];
-    const off = i * 16;
-    xyzi.writeFloatLE(Number(p.x) || 0, off);
-    xyzi.writeFloatLE(Number(p.y) || 0, off + 4);
-    xyzi.writeFloatLE(Number(p.z) || 0, off + 8);
-    xyzi.writeFloatLE(Number(p.intensity) || 0, off + 12);
+
+  let xyzi;
+  if (hasXyzi) {
+    // Zero-copy view over the Float32Array's bytes (LE on all supported hosts).
+    const src = envelope.xyzi;
+    xyzi = Buffer.from(src.buffer, src.byteOffset, src.byteLength);
+  } else {
+    xyzi = Buffer.alloc(n * 16); // 4 floats × 4 bytes
+    for (let i = 0; i < n; i++) {
+      const p = points[i];
+      const off = i * 16;
+      xyzi.writeFloatLE(Number(p.x) || 0, off);
+      xyzi.writeFloatLE(Number(p.y) || 0, off + 4);
+      xyzi.writeFloatLE(Number(p.z) || 0, off + 8);
+      xyzi.writeFloatLE(Number(p.intensity) || 0, off + 12);
+    }
   }
   return Buffer.concat([headerLen, headerBuf, xyzi]);
 }
@@ -153,7 +165,9 @@ function broadcast(envelope) {
   if (!hasOpenClient) return;
 
   // Hot path: point-cloud → binary frame. Everything else → JSON.
-  const isBinaryEligible = envelope?.type === "point-cloud" && Array.isArray(envelope.points) && envelope.points.length > 0;
+  const isBinaryEligible = envelope?.type === "point-cloud"
+    && ((envelope.xyzi instanceof Float32Array && envelope.n > 0)
+      || (Array.isArray(envelope.points) && envelope.points.length > 0));
   const payload = isBinaryEligible ? packPointCloudBinary(envelope) : JSON.stringify(envelope);
 
   for (const client of wss.clients) {

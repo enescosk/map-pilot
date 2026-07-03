@@ -7,7 +7,7 @@
 // the legacy path is skipped for that frame. See routeThroughTopicMap below.
 
 import { laserScanToReadings } from "./laserScan.js";
-import { pointCloud2ToPoints } from "./pointCloud2.js";
+import { pointCloud2ToPoints, pointCloud2ToFloat32 } from "./pointCloud2.js";
 import { compressedImageToSource, imageToSource, rawImageToSource } from "./image.js";
 import { normalizeDerivedTelemetry } from "./derivedTelemetry.js";
 import { normalizeVehicleTelemetry } from "./vehicle.js";
@@ -103,16 +103,37 @@ function normalizeFrameLegacy({ message, type, topic, time, source }) {
     // point-cloud branch) and the WS binary frame packs `points` alone, so the
     // 2D `readings` projection would be computed and immediately discarded.
     // Skip it entirely on the hot path.
-    const points = message.data ? pointCloud2ToPoints(message) : message.points || [];
-    if (points.length > 0) {
-      return {
-        type: "point-cloud",
-        points,
-        source,
-        topic,
-        time,
-        frameId: message.header?.frame_id || "",
-      };
+    //
+    // Hot path: decode straight to a packed Float32 buffer (xyzi + n) so we skip
+    // allocating ~N per-point objects that the WS binary frame would only repack.
+    // The broadcaster (packPointCloudBinary) and MQTT publisher both understand
+    // an `xyzi` envelope. The rare fallback (a pre-parsed `message.points` with
+    // no raw `data`, e.g. legacy inputs) keeps the object shape.
+    if (message.data) {
+      const { xyzi, n } = pointCloud2ToFloat32(message);
+      if (n > 0) {
+        return {
+          type: "point-cloud",
+          xyzi,
+          n,
+          source,
+          topic,
+          time,
+          frameId: message.header?.frame_id || "",
+        };
+      }
+    } else {
+      const points = message.points || [];
+      if (points.length > 0) {
+        return {
+          type: "point-cloud",
+          points,
+          source,
+          topic,
+          time,
+          frameId: message.header?.frame_id || "",
+        };
+      }
     }
   }
 
