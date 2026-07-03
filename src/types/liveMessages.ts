@@ -12,7 +12,6 @@ export type Point3D = {
   y: number;
   z: number;
   intensity?: number;
-  seen?: number;
 };
 
 export type CameraStatus = {

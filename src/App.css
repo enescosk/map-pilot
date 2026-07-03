@@ -890,10 +890,6 @@ button:hover {
   padding-right: 20px;
 }
 
-.source-control {
-  gap: 9px;
-}
-
 .size-control input {
   accent-color: #38bdf8;
   min-width: 96px;
@@ -910,24 +906,6 @@ button:hover {
 .toggle-row input {
   accent-color: #38bdf8;
   margin: 0;
-}
-
-.segmented-control.compact {
-  background: rgba(8, 13, 18, 0.52);
-  border: 1px solid rgba(71, 85, 105, 0.42);
-  border-radius: 6px;
-  padding: 2px;
-}
-
-.segmented-control.compact button {
-  border-radius: 5px;
-  min-height: 26px;
-  padding: 3px 10px;
-}
-
-.segmented-control.compact button.selected {
-  background: #38bdf8;
-  color: #06111c;
 }
 
 @media (max-width: 1260px) {

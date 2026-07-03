@@ -17,8 +17,6 @@ import { useTopicHealth } from "./hooks/useTopicHealth";
 import type { CameraFrameMessage, CameraStreamMessage, LatestFrame, LidarReading, LiveMessage, Point3D, TelemetryMessage } from "./types/liveMessages";
 import {
   LIDAR_FILTER_VERSION,
-  MAX_TOTAL_MAP_POINTS,
-  mergeLidarMap,
   POINT_CLOUD_FLUSH_MS,
   selectStoredLivePoints,
   type LidarCloudState,
@@ -109,27 +107,17 @@ function App() {
     pointCloudsRef.current = pointClouds;
   }, [pointClouds]);
 
-  // Tracks whether ANY workspace currently shows the map view.
-  // When false, mergeLidarMap is skipped (saves ~30-50ms/flush at capacity).
-  const mapViewActiveRef = useRef(false);
-
   const handlePointCloudFlush = useCallback((pending: PendingPointCloudPacket[]) => {
     setPointClouds((prev) => {
       const next = { ...prev };
-      const mapActive = mapViewActiveRef.current;
 
       for (const packet of pending) {
         // Worker already filtered + downsampled. denoisePointCloud was an
         // O(N×27) main-thread pass we no longer need.
         const livePoints = selectStoredLivePoints(packet.points);
-        const previous = next[packet.topic] || { points: [], mapPoints: [], frameId: "", resolvedFrame: "" };
-        const packetFrame = packet.resolvedFrame || packet.frameId || "";
-        const frameChanged = previous.resolvedFrame && packetFrame && previous.resolvedFrame !== packetFrame;
-        const previousMapPoints = previous.filterVersion === LIDAR_FILTER_VERSION && !frameChanged ? previous.mapPoints : [];
+        const previous = next[packet.topic] || { points: [], frameId: "", resolvedFrame: "" };
         next[packet.topic] = {
           points: livePoints,
-          // Only rebuild the cumulative map when user is actually looking at it.
-          mapPoints: mapActive ? mergeLidarMap(previousMapPoints, livePoints) : previousMapPoints,
           frameId: packet.frameId || previous.frameId || "",
           resolvedFrame: packet.resolvedFrame || previous.resolvedFrame || "",
           lastTime: packet.time || previous.lastTime,
@@ -137,20 +125,6 @@ function App() {
           // Real per-frame density for topic ranking (not the accumulated history).
           pointCount: packet.frameCount ?? previous.pointCount,
         };
-      }
-
-      if (mapActive) {
-        const totalMapPoints = Object.values(next).reduce((sum, s) => sum + s.mapPoints.length, 0);
-        if (totalMapPoints > MAX_TOTAL_MAP_POINTS) {
-          const ratio = MAX_TOTAL_MAP_POINTS / totalMapPoints;
-          for (const key of Object.keys(next)) {
-            const s = next[key];
-            if (s.mapPoints.length === 0) continue;
-            const cap = Math.max(1, Math.floor(s.mapPoints.length * ratio));
-            const step = Math.ceil(s.mapPoints.length / cap);
-            next[key] = { ...s, mapPoints: s.mapPoints.filter((_, i) => i % step === 0) };
-          }
-        }
       }
 
       return next;
@@ -245,7 +219,6 @@ function App() {
         ...prev,
         [topic]: {
           points: renderable,
-          mapPoints: prev[topic]?.mapPoints || [],
           frameId: frameId || "laser",
         },
       }));
@@ -274,7 +247,7 @@ function App() {
           ...prev,
           [topic]: existing
             ? { ...existing, pointCount: n }
-            : { points: [], mapPoints: [], frameId: "", resolvedFrame: "", pointCount: n },
+            : { points: [], frameId: "", resolvedFrame: "", pointCount: n },
         };
       });
     }
@@ -380,7 +353,6 @@ function App() {
               setActiveTopic={setActivePointCloudTopic}
               vehiclePose={telemetry.pose}
               emptyMessage={sourceMode.waiting}
-              onMapViewChange={(active) => { mapViewActiveRef.current = active; }}
             />
           </section>
         ) : (

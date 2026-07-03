@@ -14,7 +14,6 @@ export function LidarWorkspace({
   setActiveTopic,
   vehiclePose,
   emptyMessage,
-  onMapViewChange,
 }: {
   readings: LidarReading[];
   pointClouds: Record<string, LidarCloudState>;
@@ -22,13 +21,8 @@ export function LidarWorkspace({
   setActiveTopic: (t: string) => void;
   vehiclePose?: TelemetryState["pose"];
   emptyMessage: string;
-  onMapViewChange?: (active: boolean) => void;
 }) {
   const [mode, setMode] = useState<LidarMode>("3d");
-  const [cloudView, setCloudView] = useState<"live" | "map">("live");
-  useEffect(() => {
-    onMapViewChange?.(cloudView === "map");
-  }, [cloudView, onMapViewChange]);
   const [pointSize, setPointSize] = useState(0.45);
   const [colorMode, setColorMode] = useState<LidarColorMode>("height");
   const [autoFit, setAutoFit] = useState(true);
@@ -47,10 +41,8 @@ export function LidarWorkspace({
       setActiveTopic(bestTopic);
     }
   }, [activeTopic, bestTopic, setActiveTopic, lidarStartMs]);
-  const activeData = pointClouds[activeTopic] || { points: [], mapPoints: [], frameId: "", resolvedFrame: "" };
-  const points = cloudView === "map" && activeData.mapPoints.length > 0
-    ? activeData.mapPoints
-    : activeData.points;
+  const activeData = pointClouds[activeTopic] || { points: [], frameId: "", resolvedFrame: "" };
+  const points = activeData.points;
   const hasLidarData = readings.length > 0 || points.length > 0;
 
   return (
@@ -80,17 +72,6 @@ export function LidarWorkspace({
       </div>
       {mode === "3d" && (
         <div className="lidar-tool-strip">
-          <div className="lidar-control-group source-control">
-            <span className="control-caption">Source</span>
-            <div className="segmented-control compact" aria-label="Point cloud view">
-              <button type="button" className={cloudView === "live" ? "selected" : ""} onClick={() => setCloudView("live")}>
-                Live
-              </button>
-              <button type="button" className={cloudView === "map" ? "selected" : ""} onClick={() => setCloudView("map")}>
-                Map
-              </button>
-            </div>
-          </div>
           <label className="lidar-control-group">
             <span className="control-caption">Color</span>
             <select aria-label="Point color mode" value={colorMode} onChange={(event) => setColorMode(event.currentTarget.value as LidarColorMode)}>
@@ -139,8 +120,7 @@ export function LidarWorkspace({
       <div className="metric-strip">
         <span>{readings.length} scan points</span>
         <span>{activeData.points.length.toLocaleString()} live pts</span>
-        <span>{activeData.mapPoints.length.toLocaleString()} map pts</span>
-        <span>{mode.toUpperCase()} {cloudView}</span>
+        <span>{mode.toUpperCase()}</span>
       </div>
     </section>
   );

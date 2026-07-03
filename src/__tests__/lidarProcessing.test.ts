@@ -5,15 +5,14 @@ import {
   appendLidarHistory,
   selectRenderablePoints,
   selectStoredLivePoints,
-  mergeLidarMap,
   denoisePointCloud,
   chooseBestPointCloudTopic,
   LIDAR_FILTER_VERSION,
 } from "../utils/lidarProcessing";
 import type { Point3D, LidarReading } from "../types/liveMessages";
 
-function pt(x: number, y: number, z = 0, seen?: number): Point3D {
-  return { x, y, z, ...(seen !== undefined ? { seen } : {}) };
+function pt(x: number, y: number, z = 0): Point3D {
+  return { x, y, z };
 }
 
 // ─── buildPointCloudFromScan ──────────────────────────────────────────────────
@@ -128,38 +127,6 @@ describe("selectRenderablePoints", () => {
   });
 });
 
-// ─── mergeLidarMap ────────────────────────────────────────────────────────────
-
-describe("mergeLidarMap", () => {
-  it("returns current unchanged when nextPoints is empty", () => {
-    const current = [pt(1, 0)];
-    expect(mergeLidarMap(current, [])).toBe(current);
-  });
-
-  it("adds new points to the map", () => {
-    const result = mergeLidarMap([], [pt(1, 0), pt(2, 0)]);
-    expect(result.length).toBeGreaterThan(0);
-  });
-
-  it("deduplicates points in the same voxel", () => {
-    // Two nearly identical points should collapse to one voxel (voxel size 0.15m)
-    const result = mergeLidarMap([], [pt(1.0, 0), pt(1.05, 0)]);
-    expect(result.length).toBe(1);
-  });
-
-  it("preserves seen count on existing points", () => {
-    const existing = [{ ...pt(1.0, 0), seen: 5 }];
-    const result = mergeLidarMap(existing, [pt(1.0, 0)]);
-    const point = result.find((p) => Math.abs(p.x - 1.0) < 0.2);
-    expect(point?.seen).toBeGreaterThanOrEqual(1);
-  });
-
-  it("skips points with non-finite coordinates", () => {
-    const result = mergeLidarMap([], [pt(NaN, 0), pt(Infinity, 0), pt(1.0, 0)]);
-    expect(result.every((p) => Number.isFinite(p.x))).toBe(true);
-  });
-});
-
 // ─── denoisePointCloud ────────────────────────────────────────────────────────
 
 describe("denoisePointCloud", () => {
@@ -200,16 +167,16 @@ describe("chooseBestPointCloudTopic", () => {
 
   it("prefers rslidar over generic cloud", () => {
     const clouds = {
-      "/cloud": { points: Array(100).fill(pt(1, 0)), mapPoints: [], frameId: "" },
-      "/m1/rslidar_points": { points: Array(50).fill(pt(1, 0)), mapPoints: [], frameId: "" },
+      "/cloud": { points: Array(100).fill(pt(1, 0)), frameId: "" },
+      "/m1/rslidar_points": { points: Array(50).fill(pt(1, 0)), frameId: "" },
     };
     expect(chooseBestPointCloudTopic(clouds)).toBe("/m1/rslidar_points");
   });
 
   it("ignores topics with no points", () => {
     const clouds = {
-      "/cloud": { points: [], mapPoints: [], frameId: "" },
-      "/scan": { points: [pt(1, 0)], mapPoints: [], frameId: "" },
+      "/cloud": { points: [], frameId: "" },
+      "/scan": { points: [pt(1, 0)], frameId: "" },
     };
     expect(chooseBestPointCloudTopic(clouds)).toBe("");
   });

@@ -3,7 +3,6 @@ import type { TelemetryState, Vector3 } from "../types/telemetry";
 
 export type LidarCloudState = {
   points: Point3D[];
-  mapPoints: Point3D[];
   frameId: string;
   resolvedFrame?: string;
   lastTime?: string;
@@ -27,13 +26,8 @@ export type LaserScanLike = {
 const MAX_LIDAR_HISTORY_POINTS = 32000;
 const MAX_RENDERED_POINT_CLOUD_POINTS = 60000;
 // The 3D renderer only draws up to ~65k points (its fixed typed-array pool), so
-// storing far more than that is memory we never display. Keep live + map caps
-// comfortably below what a memory-limited tab (e.g. Firefox) can hold. Map at
-// ~450k pts × ~32 B ≈ 14 MB; bumping these back up risks the OOM tab crash.
+// storing far more than that is memory we never display.
 const MAX_STORED_LIVE_POINTS = 80000;
-const MAX_LIDAR_MAP_POINTS = 450000;
-export const MAX_TOTAL_MAP_POINTS = 600000;
-const LIDAR_MAP_VOXEL_SIZE = 0.15;
 export const POINT_CLOUD_FLUSH_MS = 100;
 const LIDAR_VIEW_RADIUS_METERS = 80;
 const LIDAR_VIEW_MIN_HEIGHT = -3;
@@ -43,8 +37,6 @@ const LIDAR_EGO_CLEARANCE_METERS = 0.4;
 const LIDAR_NOISE_VOXEL_SIZE = 0.4;
 const LIDAR_MIN_VOXEL_POINTS = 2;
 const LIDAR_MIN_NEIGHBOR_POINTS = 4;
-const LIDAR_MAP_CONFIRMATION_VOXEL_SIZE = 0.2;
-const LIDAR_MAP_MIN_SEEN = 1;
 const RENDER_VOXEL_SIZE = 0.2;
 export const LIDAR_FILTER_VERSION = 3;
 
@@ -242,14 +234,6 @@ export function denoisePointCloud(points: Point3D[], frameId?: string, resolvedF
     : candidates.map((candidate) => candidate.point);
 }
 
-function mapConfirmationKey(point: Point3D) {
-  return [
-    Math.round(point.x / LIDAR_MAP_CONFIRMATION_VOXEL_SIZE),
-    Math.round(point.y / LIDAR_MAP_CONFIRMATION_VOXEL_SIZE),
-    Math.round(point.z / LIDAR_MAP_CONFIRMATION_VOXEL_SIZE),
-  ].join(":");
-}
-
 export function appendLidarHistory(current: Point3D[], nextPoints: Point3D[]) {
   if (nextPoints.length === 0) {
     return current;
@@ -302,49 +286,6 @@ export function selectStoredLivePoints(points: Point3D[]) {
     selected.push(points[index]);
   }
   return selected;
-}
-
-function voxelKey(point: Point3D) {
-  return [
-    Math.round(point.x / LIDAR_MAP_VOXEL_SIZE),
-    Math.round(point.y / LIDAR_MAP_VOXEL_SIZE),
-    Math.round(point.z / LIDAR_MAP_VOXEL_SIZE),
-  ].join(":");
-}
-
-export function mergeLidarMap(current: Point3D[], nextPoints: Point3D[]) {
-  if (nextPoints.length === 0) {
-    return current;
-  }
-
-  const map = new Map<string, Point3D>();
-  const confirmationCounts = new Map<string, number>();
-  for (const point of current) {
-    map.set(voxelKey(point), point);
-    const confirmationKey = mapConfirmationKey(point);
-    confirmationCounts.set(confirmationKey, Math.max(confirmationCounts.get(confirmationKey) || 0, point.seen || LIDAR_MAP_MIN_SEEN));
-  }
-
-  const step = Math.max(1, Math.ceil(nextPoints.length / 14000));
-  for (let index = 0; index < nextPoints.length; index += step) {
-    const point = nextPoints[index];
-    if (Number.isFinite(point.x) && Number.isFinite(point.y) && Number.isFinite(point.z)) {
-      const confirmationKey = mapConfirmationKey(point);
-      const seen = Math.min(12, (confirmationCounts.get(confirmationKey) || 0) + 1);
-      confirmationCounts.set(confirmationKey, seen);
-      if (seen >= LIDAR_MAP_MIN_SEEN) {
-        map.set(voxelKey(point), { ...point, seen });
-      }
-    }
-  }
-
-  const merged = [...map.values()];
-  if (merged.length <= MAX_LIDAR_MAP_POINTS) {
-    return merged;
-  }
-
-  const trimStep = Math.ceil(merged.length / MAX_LIDAR_MAP_POINTS);
-  return merged.filter((_, index) => index % trimStep === 0);
 }
 
 function isPointCloudTopic(topic: string) {
