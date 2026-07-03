@@ -1351,6 +1351,25 @@ button:hover {
   box-shadow: inset 2px 0 12px rgba(248, 113, 113, 0.12);
 }
 
+/* Neutral empty state: data not (yet) available for this metric. Card keeps
+   its footprint but recedes — muted accent, no glow, dimmed placeholder — so
+   populated cards read as the live ones. */
+.cockpit-metric.is-empty {
+  border-left-color: rgba(91, 107, 130, 0.4);
+  opacity: 0.62;
+}
+
+.cockpit-metric.is-empty:hover {
+  border-color: var(--border-subtle);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+.cockpit-metric.is-empty > strong {
+  color: var(--text-muted);
+  font-weight: 600;
+  text-shadow: none;
+}
+
 .steering-wheel-widget {
   align-items: center;
   display: grid;
