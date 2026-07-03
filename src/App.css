@@ -1379,6 +1379,10 @@ button:hover {
 .cockpit-metric.is-empty {
   border-left-color: rgba(91, 107, 130, 0.4);
   opacity: 0.62;
+  /* Sink inactive cards to the end of the grid so live metrics cluster at the
+     top. Populated cards keep the implicit order: 0; DOM order is preserved
+     within each group, so the labelled sequence stays intact. */
+  order: 1;
 }
 
 .cockpit-metric.is-empty:hover {
