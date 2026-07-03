@@ -20,15 +20,23 @@ function DecisionLogPanel({ entries }: DecisionLogPanelProps) {
       </div>
 
       <div className="decision-list">
-        {entries.map((entry) => (
-          <div className="decision-row" key={entry.id}>
-            <span>{entry.time}</span>
-            <div>
-              <strong>{entry.source}</strong>
-              <p>{entry.message}</p>
-            </div>
+        {entries.length === 0 ? (
+          <div className="decision-empty">
+            <span className="decision-empty-dot" aria-hidden />
+            <span className="decision-empty-title">Karar bekleniyor</span>
+            <span className="decision-empty-hint">Otonom sürüş kararları burada listelenecek</span>
           </div>
-        ))}
+        ) : (
+          entries.map((entry) => (
+            <div className="decision-row" key={entry.id}>
+              <span>{entry.time}</span>
+              <div>
+                <strong>{entry.source}</strong>
+                <p>{entry.message}</p>
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </article>
   );

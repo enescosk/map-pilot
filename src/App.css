@@ -527,6 +527,37 @@ button:hover {
   margin: 0;
 }
 
+/* Compact "waiting" placeholder for the decision log — reads as idle, not
+   broken. Sized to fit the short panel strip (no big icon like EmptyState). */
+.decision-empty {
+  align-items: center;
+  color: #6b7689;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  height: 100%;
+  justify-content: center;
+  min-height: 0;
+  padding: 8px;
+  text-align: center;
+}
+.decision-empty-dot {
+  animation: emptyPulse 1.6s ease-in-out infinite;
+  background: var(--accent);
+  border-radius: 50%;
+  height: 8px;
+  width: 8px;
+}
+.decision-empty-title {
+  color: #cbd5e1;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.decision-empty-hint {
+  color: #6b7689;
+  font-size: 0.7rem;
+}
+
 .cockpit-charts {
   display: grid;
   gap: 12px;
