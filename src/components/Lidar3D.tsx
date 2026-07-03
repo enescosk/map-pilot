@@ -1,9 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { LidarReading, Point3D } from "../types/liveMessages";
 import type { TelemetryState, Vector3 } from "../types/telemetry";
-import { isMeaningfulDisplayPoint, pointToDisplayThree, scanReadingsToPoints } from "../utils/lidarProcessing";
+import {
+  getDisplayFrameTransform,
+  isMeaningfulThreeCoords,
+  scanReadingsToPoints,
+  transformDisplayPointInto,
+} from "../utils/lidarProcessing";
 import { createPointSpriteTexture, setTurboColor } from "../utils/dashboardHelpers";
 
 export type LidarColorMode = "intensity" | "height" | "distance";
@@ -27,6 +32,20 @@ const DEFAULT_LIDAR_CAMERA_POSITION = new THREE.Vector3(0, 18, 28);
 // warm. A tighter range than before makes low structure stand out from ground.
 const HEIGHT_COLOR_MIN = -2;
 const HEIGHT_COLOR_MAX = 4;
+// Fixed GPU buffer pool size — the worker caps renderable clouds below this.
+const MAX_RENDER_POINTS = 65_536;
+
+function emptyDebugStats(): LidarDebugStats {
+  return {
+    pointsCount: 0,
+    sourcePointsCount: 0,
+    min: { x: 0, y: 0, z: 0 },
+    max: { x: 0, y: 0, z: 0 },
+    threeMin: { x: 0, y: 0, z: 0 },
+    threeMax: { x: 0, y: 0, z: 0 },
+    firstPoints: [],
+  };
+}
 
 function Lidar3D({
   readings,
@@ -62,58 +81,20 @@ function Lidar3D({
   const renderRequestRef = useRef<(() => void) | null>(null);
   const rawDisplayPoints = useMemo(() => points.length > 0 ? points : scanReadingsToPoints(readings), [points, readings]);
   const hasPoints = points.length > 0;
-  // Worker already filters + downsamples; we only need the meaningful-display
-  // filter here. Skipping denoisePointCloud removes a 60k×27 voxel-lookup pass
-  // that was killing the main thread (was ~30-50 ms per flush at capacity).
-  const scenePoints = useMemo(() => {
-    return rawDisplayPoints.filter((point) => isMeaningfulDisplayPoint(point, frameId, resolvedFrame, vehiclePose));
-  }, [frameId, rawDisplayPoints, resolvedFrame, vehiclePose]);
-  const displayPoints = scenePoints; // worker already capped to render budget
-  const debugStats = useMemo<LidarDebugStats>(() => {
-    // Lazy: only compute when debug overlay is visible (saves 60k×trig per frame).
-    if (!showDebug) {
-      return {
-        pointsCount: displayPoints.length,
-        sourcePointsCount: rawDisplayPoints.length,
-        min: { x: 0, y: 0, z: 0 },
-        max: { x: 0, y: 0, z: 0 },
-        threeMin: { x: 0, y: 0, z: 0 },
-        threeMax: { x: 0, y: 0, z: 0 },
-        firstPoints: [],
-      };
-    }
-    let minX = Infinity, maxX = -Infinity;
-    let minY = Infinity, maxY = -Infinity;
-    let minZ = Infinity, maxZ = -Infinity;
-    let threeMinX = Infinity, threeMaxX = -Infinity;
-    let threeMinY = Infinity, threeMaxY = -Infinity;
-    let threeMinZ = Infinity, threeMaxZ = -Infinity;
 
-    for (const point of displayPoints) {
-      minX = Math.min(minX, point.x); maxX = Math.max(maxX, point.x);
-      minY = Math.min(minY, point.y); maxY = Math.max(maxY, point.y);
-      minZ = Math.min(minZ, point.z); maxZ = Math.max(maxZ, point.z);
-      const threePoint = pointToDisplayThree(point, frameId, resolvedFrame, vehiclePose);
-      threeMinX = Math.min(threeMinX, threePoint.x); threeMaxX = Math.max(threeMaxX, threePoint.x);
-      threeMinY = Math.min(threeMinY, threePoint.y); threeMaxY = Math.max(threeMaxY, threePoint.y);
-      threeMinZ = Math.min(threeMinZ, threePoint.z); threeMaxZ = Math.max(threeMaxZ, threePoint.z);
-    }
+  // Pre-allocated typed-array pool — same buffers are reused across frames so we
+  // avoid GC pressure (was ~21 MB/s of churn at 30 Hz with 60k points). Only
+  // ever touched inside effects (buffer-fill + geometry creation).
+  const positionsRef = useRef<Float32Array>(new Float32Array(MAX_RENDER_POINTS * 3));
+  const colorsRef = useRef<Float32Array>(new Float32Array(MAX_RENDER_POINTS * 3));
 
-    if (displayPoints.length === 0) {
-      minX = 0; maxX = 0; minY = 0; maxY = 0; minZ = 0; maxZ = 0;
-      threeMinX = 0; threeMaxX = 0; threeMinY = 0; threeMaxY = 0; threeMinZ = 0; threeMaxZ = 0;
-    }
-
-    return {
-      pointsCount: displayPoints.length,
-      sourcePointsCount: rawDisplayPoints.length,
-      min: { x: minX, y: minY, z: minZ },
-      max: { x: maxX, y: maxY, z: maxZ },
-      threeMin: { x: threeMinX, y: threeMinY, z: threeMinZ },
-      threeMax: { x: threeMaxX, y: threeMaxY, z: threeMaxZ },
-      firstPoints: displayPoints.slice(0, 5),
-    };
-  }, [displayPoints, frameId, rawDisplayPoints.length, resolvedFrame, vehiclePose, showDebug]);
+  // Written by the buffer-fill effect below; consumed by the debug overlay and
+  // the autoFit trigger. Lidar3D already re-renders on every flush (new points
+  // prop), so this state update adds one cheap render, not a new cadence.
+  const [cloudInfo, setCloudInfo] = useState<{ count: number; stats: LidarDebugStats }>(
+    () => ({ count: 0, stats: emptyDebugStats() }),
+  );
+  const debugStats = cloudInfo.stats;
 
   const setView = useCallback((position: THREE.Vector3, target = new THREE.Vector3(0, 0, 0), up = new THREE.Vector3(0, 1, 0)) => {
     const camera = cameraRef.current;
@@ -518,12 +499,6 @@ function Lidar3D({
     vehicle.position.set(0, 0, 0);
   }, [frameId, resolvedFrame, vehiclePose]);
 
-  // Pre-allocated typed-array pool — same buffer is reused across frames so we
-  // avoid GC pressure (was ~21 MB/s of churn at 30 Hz with 60k points).
-  const MAX_RENDER_POINTS = 65_536;
-  const positionsRef = useRef<Float32Array>(new Float32Array(MAX_RENDER_POINTS * 3));
-  const colorsRef = useRef<Float32Array>(new Float32Array(MAX_RENDER_POINTS * 3));
-
   // Create geometry + material ONCE on first render and reuse forever.
   useEffect(() => {
     const scene = sceneRef.current;
@@ -569,33 +544,59 @@ function Lidar3D({
     (cloud.material as THREE.PointsMaterial).size = Math.max(pointSize, 0.25);
   }, [pointSize]);
 
-  // Per-cloud update: write into the existing typed-array slots and flag dirty.
+  // Per-cloud update — ONE allocation-free pass per flush: transform each point
+  // with per-batch frame scalars, meaningful-filter, write straight into the
+  // pooled GPU arrays, and gather bounds/stats along the way. This replaces two
+  // object-allocating passes (filter memo + buffer fill) that produced ~1.2M
+  // throwaway {x,y,z} objects/s and regular GC pauses. Bounds are now computed
+  // always (cheap scalar compares), so Fit/autoFit work even with the debug
+  // overlay off.
   useEffect(() => {
     const cloud = cloudRef.current;
     if (!cloud) return;
 
     const positions = positionsRef.current;
     const colors = colorsRef.current;
+    const transform = getDisplayFrameTransform(frameId, resolvedFrame, vehiclePose);
     const color = new THREE.Color();
-    const count = Math.min(displayPoints.length, MAX_RENDER_POINTS);
+    const tmp = { x: 0, y: 0, z: 0 };
+    const firstPoints: Point3D[] = [];
+    let valid = 0;
+    let written = 0;
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+    let minZ = Infinity, maxZ = -Infinity;
+    let threeMinX = Infinity, threeMaxX = -Infinity;
+    let threeMinY = Infinity, threeMaxY = -Infinity;
+    let threeMinZ = Infinity, threeMaxZ = -Infinity;
 
-    for (let i = 0; i < count; i++) {
-      const point = displayPoints[i];
-      const threePoint = pointToDisplayThree(point, frameId, resolvedFrame, vehiclePose);
-      const o = i * 3;
-      positions[o]     = threePoint.x;
-      positions[o + 1] = threePoint.y;
-      positions[o + 2] = threePoint.z;
+    for (const point of rawDisplayPoints) {
+      transformDisplayPointInto(tmp, point, transform);
+      if (!isMeaningfulThreeCoords(tmp.x, tmp.y, tmp.z)) continue;
+      valid += 1;
+      if (firstPoints.length < 5) firstPoints.push(point);
+      if (point.x < minX) minX = point.x; if (point.x > maxX) maxX = point.x;
+      if (point.y < minY) minY = point.y; if (point.y > maxY) maxY = point.y;
+      if (point.z < minZ) minZ = point.z; if (point.z > maxZ) maxZ = point.z;
+      if (tmp.x < threeMinX) threeMinX = tmp.x; if (tmp.x > threeMaxX) threeMaxX = tmp.x;
+      if (tmp.y < threeMinY) threeMinY = tmp.y; if (tmp.y > threeMaxY) threeMaxY = tmp.y;
+      if (tmp.z < threeMinZ) threeMinZ = tmp.z; if (tmp.z > threeMaxZ) threeMaxZ = tmp.z;
+      if (written >= MAX_RENDER_POINTS) continue;
+
+      const o = written * 3;
+      positions[o]     = tmp.x;
+      positions[o + 1] = tmp.y;
+      positions[o + 2] = tmp.z;
 
       if (colorMode === "intensity" && typeof point.intensity === "number" && point.intensity > 0) {
         const normalizedInt = Math.max(0, Math.min(1, point.intensity > 255 ? point.intensity / 4096 : point.intensity / 255));
         setTurboColor(color, normalizedInt);
       } else if (colorMode === "height") {
-        const height = (threePoint.y - HEIGHT_COLOR_MIN) / (HEIGHT_COLOR_MAX - HEIGHT_COLOR_MIN);
+        const height = (tmp.y - HEIGHT_COLOR_MIN) / (HEIGHT_COLOR_MAX - HEIGHT_COLOR_MIN);
         setTurboColor(color, height);
       } else {
         // Math.sqrt(x*x + y*y + z*z) is ~3× faster than Math.hypot in V8.
-        const distance = Math.sqrt(threePoint.x * threePoint.x + threePoint.y * threePoint.y + threePoint.z * threePoint.z);
+        const distance = Math.sqrt(tmp.x * tmp.x + tmp.y * tmp.y + tmp.z * tmp.z);
         const normalized = Math.max(0, Math.min(1, distance / 45));
         setTurboColor(color, 1 - normalized);
       }
@@ -603,14 +604,31 @@ function Lidar3D({
       colors[o]     = color.r;
       colors[o + 1] = color.g;
       colors[o + 2] = color.b;
+      written += 1;
     }
 
-    cloud.geometry.setDrawRange(0, count);
+    if (valid === 0) {
+      minX = 0; maxX = 0; minY = 0; maxY = 0; minZ = 0; maxZ = 0;
+      threeMinX = 0; threeMaxX = 0; threeMinY = 0; threeMaxY = 0; threeMinZ = 0; threeMaxZ = 0;
+    }
+
+    const stats: LidarDebugStats = {
+      pointsCount: valid,
+      sourcePointsCount: rawDisplayPoints.length,
+      min: { x: minX, y: minY, z: minZ },
+      max: { x: maxX, y: maxY, z: maxZ },
+      threeMin: { x: threeMinX, y: threeMinY, z: threeMinZ },
+      threeMax: { x: threeMaxX, y: threeMaxY, z: threeMaxZ },
+      firstPoints,
+    };
+
+    cloud.geometry.setDrawRange(0, written);
     (cloud.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
     (cloud.geometry.attributes.color as THREE.BufferAttribute).needsUpdate = true;
-    cloud.userData = { debugStats };
+    cloud.userData = { debugStats: stats };
     renderRequestRef.current?.();
-  }, [colorMode, debugStats, displayPoints, frameId, resolvedFrame, vehiclePose]);
+    setCloudInfo({ count: written, stats });
+  }, [colorMode, frameId, rawDisplayPoints, resolvedFrame, vehiclePose]);
 
   useEffect(() => {
     if (!autoFit || !hasPoints) {
@@ -619,7 +637,7 @@ function Lidar3D({
 
     const timer = window.setTimeout(fitToCloud, 120);
     return () => window.clearTimeout(timer);
-  }, [activeTopic, autoFit, fitToCloud, hasPoints, displayPoints.length]);
+  }, [activeTopic, autoFit, fitToCloud, hasPoints, cloudInfo.count]);
 
   return (
     <div className="lidar-3d-stage" ref={mountRef}>

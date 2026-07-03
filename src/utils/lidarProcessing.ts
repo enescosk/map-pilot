@@ -144,6 +144,69 @@ export function pointToDisplayThree(point: Point3D, frameId?: string, resolvedFr
   return pointToThree(displayPoint, frameId, resolvedFrame);
 }
 
+// ─── Allocation-free display transform ───────────────────────────────────────
+// The 3D view converts up to 60k points per flush. The object-returning helpers
+// above cost one throwaway {x,y,z} per point per pass (~1.2M objects/s at 10 Hz
+// over two passes), which shows up as GC pauses. Hot paths instead resolve the
+// frame ONCE per batch and write transformed coords into a caller-owned target.
+
+export type DisplayFrameTransform = {
+  cameraOptical: boolean;
+  // Ego offset — non-zero only for world-frame clouds with a finite pose.
+  offsetX: number;
+  offsetY: number;
+  offsetZ: number;
+};
+
+export function getDisplayFrameTransform(
+  frameId?: string,
+  resolvedFrame?: string,
+  vehiclePose?: TelemetryState["pose"],
+): DisplayFrameTransform {
+  const transform: DisplayFrameTransform = {
+    cameraOptical: usesCameraOpticalFrame(frameId, resolvedFrame),
+    offsetX: 0,
+    offsetY: 0,
+    offsetZ: 0,
+  };
+  if (usesWorldFrame(frameId, resolvedFrame)) {
+    const position = vehiclePose?.position;
+    const x = Number(position?.x || 0);
+    const y = Number(position?.y || 0);
+    const z = Number(position?.z || 0);
+    if (position && Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+      transform.offsetX = x;
+      transform.offsetY = y;
+      transform.offsetZ = z;
+    }
+  }
+  return transform;
+}
+
+/** Same math as pointToDisplayThree, but writes into `out` — no allocation. */
+export function transformDisplayPointInto(out: Vector3, point: Point3D, transform: DisplayFrameTransform) {
+  const x = point.x - transform.offsetX;
+  const y = point.y - transform.offsetY;
+  const z = point.z - transform.offsetZ;
+  if (transform.cameraOptical) {
+    out.x = x;
+    out.y = -y;
+    out.z = -z;
+  } else {
+    out.x = -y;
+    out.y = z;
+    out.z = -x;
+  }
+}
+
+/** Scalar variant of isMeaningfulDisplayPoint over already-transformed coords. */
+export function isMeaningfulThreeCoords(x: number, y: number, z: number) {
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return false;
+  if (y < LIDAR_VIEW_MIN_HEIGHT || y > LIDAR_VIEW_MAX_HEIGHT) return false;
+  // Squared compare instead of Math.hypot — identical result, ~3× faster in V8.
+  return x * x + z * z <= LIDAR_VIEW_RADIUS_METERS * LIDAR_VIEW_RADIUS_METERS;
+}
+
 function isMeaningfulScenePoint(point: Point3D, frameId?: string, resolvedFrame?: string) {
   const threePoint = pointToThree(point, frameId, resolvedFrame);
   const horizontalDistance = Math.hypot(threePoint.x, threePoint.z);
@@ -162,15 +225,7 @@ function isMeaningfulScenePoint(point: Point3D, frameId?: string, resolvedFrame?
 
 export function isMeaningfulDisplayPoint(point: Point3D, frameId?: string, resolvedFrame?: string, vehiclePose?: TelemetryState["pose"]) {
   const threePoint = pointToDisplayThree(point, frameId, resolvedFrame, vehiclePose);
-  const horizontalDistance = Math.hypot(threePoint.x, threePoint.z);
-  return (
-    Number.isFinite(threePoint.x) &&
-    Number.isFinite(threePoint.y) &&
-    Number.isFinite(threePoint.z) &&
-    horizontalDistance <= LIDAR_VIEW_RADIUS_METERS &&
-    threePoint.y >= LIDAR_VIEW_MIN_HEIGHT &&
-    threePoint.y <= LIDAR_VIEW_MAX_HEIGHT
-  );
+  return isMeaningfulThreeCoords(threePoint.x, threePoint.y, threePoint.z);
 }
 
 function noiseVoxelKey(point: Vector3) {

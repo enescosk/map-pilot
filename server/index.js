@@ -33,6 +33,11 @@ const AUTO_START_SOURCE =
 
 const wss = new WebSocketServer({ port: WS_PORT });
 let lidarSource;
+// The frontend toggles this with start-lidar/stop-lidar as the user enters and
+// leaves the LiDAR page. Off means: unsubscribe the heavy ROS lidar topics at
+// the source (when it supports it) and drop any remaining scan/point-cloud
+// envelopes before the packing/broadcast cost. Telemetry/camera are unaffected.
+let lidarStreamEnabled = true;
 // Cumulative telemetry across all topics, sent as a single snapshot on connect
 // so a freshly-loaded dashboard shows every field immediately instead of waiting
 // for each (possibly slow) topic to publish its next frame.
@@ -155,6 +160,12 @@ function packPointCloudBinary(envelope) {
 }
 
 function broadcast(envelope) {
+  // LiDAR page closed → drop lidar envelopes outright. Covers sources that
+  // can't unsubscribe per topic (e.g. MQTT wildcard subscriptions).
+  if (!lidarStreamEnabled && (envelope?.type === "point-cloud" || envelope?.type === "scan")) {
+    return;
+  }
+
   // No connected clients → skip packing/serialization entirely. Point-cloud
   // packing and large-envelope JSON.stringify are the two most expensive steps
   // here; there's no point paying for them when nobody is listening.
@@ -260,11 +271,20 @@ wss.on("connection", (ws) => {
       const payload = JSON.parse(message.toString());
 
       if (payload.type === "start-lidar") {
+        lidarStreamEnabled = true;
+        lidarSource?.startLidar?.();
         lidarSource?.start();
       }
 
       if (payload.type === "stop-lidar") {
-        lidarSource?.stop();
+        lidarStreamEnabled = false;
+        if (lidarSource?.stopLidar) {
+          // Source keeps running (telemetry/camera/GPS); only lidar topics stop.
+          lidarSource.stopLidar();
+        } else {
+          // Lidar-only sources (direct/ros/synthetic) have nothing else to keep.
+          lidarSource?.stop();
+        }
       }
 
       if (payload.type === "connect-source") {
@@ -296,6 +316,9 @@ wss.on("connection", (ws) => {
         topicHealthService.reset();
         setLidarSource(createLidarSource(source, rosbridgeUrl, mqttUrl));
         lidarSource.start();
+        // A fresh source defaults to lidar-on; re-apply the client's current
+        // page state so switching sources on the Cockpit page stays lightweight.
+        if (!lidarStreamEnabled) lidarSource.stopLidar?.();
         broadcast({ type: "source-changed", source });
         ws.send(JSON.stringify(lidarSource.getStatus()));
         console.log(`Source changed to ${source} via UI (rosbridge=${sanitizeUrlForLog(rosbridgeUrl || "-")} mqtt=${sanitizeUrlForLog(mqttUrl || "-")})`);

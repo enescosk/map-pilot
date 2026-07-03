@@ -30,7 +30,7 @@ class MockWS {
 
 vi.mock("ws", () => ({ default: MockWS }));
 
-const { createVehicleRosSource, LIVE_ROS_TOPICS } = await import("../sources/vehicleRosSource.js");
+const { createVehicleRosSource, LIVE_ROS_TOPICS, isLidarTopic } = await import("../sources/vehicleRosSource.js");
 
 beforeEach(() => { MockWS.instances = []; });
 
@@ -144,6 +144,46 @@ describe("lifecycle", () => {
     expect(unsubs).toHaveLength(LIVE_ROS_TOPICS.length);
     expect(sock.readyState).toBe(MockWS.CLOSED);
     expect(source.getStatus().connected).toBe(false);
+  });
+
+  it("stopLidar() unsubscribes only lidar topics; telemetry stays subscribed", () => {
+    const { source, socket } = makeSource();
+    source.start();
+    socket()._open();
+    source.stopLidar();
+
+    const lidarTopics = LIVE_ROS_TOPICS.filter(isLidarTopic);
+    const unsubs = socket().sent.map((s) => JSON.parse(s)).filter((m) => m.op === "unsubscribe");
+    expect(unsubs.map((m) => m.topic).sort()).toEqual([...lidarTopics].sort());
+    expect(unsubs.map((m) => m.topic)).not.toContain("/VelocityInformation");
+    expect(socket().readyState).toBe(MockWS.OPEN); // source keeps running
+  });
+
+  it("startLidar() after stopLidar() resubscribes the lidar topics", () => {
+    const { source, socket } = makeSource();
+    source.start();
+    socket()._open();
+    source.stopLidar();
+    const before = socket().sent.length;
+    source.startLidar();
+
+    const lidarTopics = LIVE_ROS_TOPICS.filter(isLidarTopic);
+    const resubs = socket().sent.slice(before).map((s) => JSON.parse(s)).filter((m) => m.op === "subscribe");
+    expect(resubs.map((m) => m.topic).sort()).toEqual([...lidarTopics].sort());
+  });
+
+  it("a restart while lidar is stopped does not resubscribe lidar topics", () => {
+    const { source, socket } = makeSource();
+    source.start();
+    socket()._open();
+    source.stopLidar();
+    source.stop();
+    source.start();            // fresh socket — lidar must stay off
+    socket()._open();
+
+    const subs = socket().sent.map((s) => JSON.parse(s)).filter((m) => m.op === "subscribe");
+    expect(subs.map((m) => m.topic).some(isLidarTopic)).toBe(false);
+    expect(subs.map((m) => m.topic)).toContain("/VelocityInformation");
   });
 
   it("error event emits a backend-error", () => {

@@ -47,11 +47,25 @@ export const LIVE_ROS_TOPICS = (process.env.LIVE_ROS_TOPICS || process.env.VEHIC
   .map((topic) => topic.trim())
   .filter(Boolean);
 
+// LiDAR feeds are by far the heaviest topics (a single /rslidar_points is
+// ~21 MB/s through rosbridge). The frontend only renders them on the LiDAR
+// page, so they get their own subscribe lifecycle: startLidar()/stopLidar()
+// toggle just these topics while telemetry/camera/GPS stay subscribed.
+export function isLidarTopic(topic) {
+  const lower = String(topic).toLowerCase();
+  return lower.includes("scan") || lower.includes("cloud") || lower.includes("points")
+    || lower.includes("rslidar") || lower.includes("laser");
+}
+
 export function createVehicleRosSource({ emit, url } = {}) {
   const rosbridgeUrl = url || process.env.ROSBRIDGE_URL || ROSBRIDGE_URL;
+  const lidarTopics = LIVE_ROS_TOPICS.filter(isLidarTopic);
+  const baseTopics = LIVE_ROS_TOPICS.filter((topic) => !isLidarTopic(topic));
   let rosSocket;
   let connected = false;
-  let subscribed = false;
+  let baseSubscribed = false;
+  let lidarSubscribed = false;
+  let lidarEnabled = true;
   let reconnectTimer;
   let stopped = false;
   let reconnectDelay = 1000;
@@ -67,32 +81,56 @@ export function createVehicleRosSource({ emit, url } = {}) {
     };
   }
 
+  function sendTopicOps(op, topics) {
+    for (const topic of topics) {
+      rosSocket.send(JSON.stringify({ op, topic }));
+    }
+  }
+
   function subscribe() {
-    if (!rosSocket || rosSocket.readyState !== WebSocket.OPEN || subscribed) {
+    if (!rosSocket || rosSocket.readyState !== WebSocket.OPEN) {
       return;
     }
 
-    for (const topic of LIVE_ROS_TOPICS) {
-      rosSocket.send(JSON.stringify({
-        op: "subscribe",
-        topic,
-      }));
+    if (!baseSubscribed) {
+      sendTopicOps("subscribe", baseTopics);
+      baseSubscribed = true;
     }
-    subscribed = true;
+    if (lidarEnabled && !lidarSubscribed) {
+      sendTopicOps("subscribe", lidarTopics);
+      lidarSubscribed = true;
+    }
   }
 
   function unsubscribe() {
-    if (!rosSocket || rosSocket.readyState !== WebSocket.OPEN || !subscribed) {
+    if (!rosSocket || rosSocket.readyState !== WebSocket.OPEN) {
       return;
     }
 
-    for (const topic of LIVE_ROS_TOPICS) {
-      rosSocket.send(JSON.stringify({
-        op: "unsubscribe",
-        topic,
-      }));
+    if (baseSubscribed) {
+      sendTopicOps("unsubscribe", baseTopics);
+      baseSubscribed = false;
     }
-    subscribed = false;
+    if (lidarSubscribed) {
+      sendTopicOps("unsubscribe", lidarTopics);
+      lidarSubscribed = false;
+    }
+  }
+
+  function startLidar() {
+    lidarEnabled = true;
+    if (rosSocket?.readyState === WebSocket.OPEN && !lidarSubscribed) {
+      sendTopicOps("subscribe", lidarTopics);
+      lidarSubscribed = true;
+    }
+  }
+
+  function stopLidar() {
+    lidarEnabled = false;
+    if (rosSocket?.readyState === WebSocket.OPEN && lidarSubscribed) {
+      sendTopicOps("unsubscribe", lidarTopics);
+    }
+    lidarSubscribed = false;
   }
 
   function start() {
@@ -105,7 +143,8 @@ export function createVehicleRosSource({ emit, url } = {}) {
       // Stale socket in a non-OPEN state — close it cleanly before reconnecting
       rosSocket.close();
       rosSocket = undefined;
-      subscribed = false;
+      baseSubscribed = false;
+      lidarSubscribed = false;
     }
 
     rosSocket = new WebSocket(rosbridgeUrl);
@@ -156,7 +195,8 @@ export function createVehicleRosSource({ emit, url } = {}) {
 
     rosSocket.on("close", () => {
       connected = false;
-      subscribed = false;
+      baseSubscribed = false;
+      lidarSubscribed = false;
       emit(getStatus());
       if (!stopped) scheduleReconnect();
     });
@@ -187,9 +227,10 @@ export function createVehicleRosSource({ emit, url } = {}) {
       rosSocket = undefined;
     }
     connected = false;
-    subscribed = false;
+    baseSubscribed = false;
+    lidarSubscribed = false;
     emit(getStatus());
   }
 
-  return { getStatus, start, stop };
+  return { getStatus, start, stop, startLidar, stopLidar };
 }

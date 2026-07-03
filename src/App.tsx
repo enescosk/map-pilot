@@ -71,6 +71,12 @@ function LatestFramePanel({ latest }: { latest?: LatestFrame }) {
 
 function App() {
   const [mode, setMode] = useState<WorkspaceMode>("perception");
+  // Mirror for stable callbacks (handleWorkerMessage) that must see the current
+  // mode without re-subscribing the worker on every page switch.
+  const modeRef = useRef<WorkspaceMode>(mode);
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
   const [backendSource, setBackendSource] = useState("none");
   const [backendError, setBackendError] = useState<string | null>(null);
   const [lidarReadings, setLidarReadings] = useState<LidarReading[]>([]);
@@ -207,21 +213,44 @@ function App() {
     resetStreamState,
   ]);
 
+  // Register a topic (with its raw point count) so it appears in the picker and
+  // auto-selection can compare it — without storing any point array.
+  const registerCloudTopic = useCallback((topic: string, n: number) => {
+    setPointClouds((prev) => {
+      const existing = prev[topic];
+      if (existing && existing.pointCount === n && existing.points.length === 0) return prev;
+      return {
+        ...prev,
+        [topic]: existing
+          ? { ...existing, pointCount: n }
+          : { points: [], frameId: "", resolvedFrame: "", pointCount: n },
+      };
+    });
+  }, []);
+
   // Worker delivers pre-processed scan-ready / cloud-ready results (lidar work is off main thread)
   const handleWorkerMessage = useCallback((ev: MessageEvent) => {
     const { type } = ev.data as { type: string };
+    // Off the LiDAR page, never push big point arrays through React state —
+    // rendering 60-80k invisible points was saturating the main thread. Straggler
+    // frames (backend stop in flight) only update the cheap topic registry.
+    const lidarPageOpen = modeRef.current === "debug";
 
     if (type === "scan-ready") {
       const { topic, renderable, readingsLength, time, frameId } = ev.data as {
         topic: string; renderable: Point3D[]; readingsLength: number; time: string; frameId: string;
       };
-      setPointClouds((prev) => ({
-        ...prev,
-        [topic]: {
-          points: renderable,
-          frameId: frameId || "laser",
-        },
-      }));
+      if (lidarPageOpen) {
+        setPointClouds((prev) => ({
+          ...prev,
+          [topic]: {
+            points: renderable,
+            frameId: frameId || "laser",
+          },
+        }));
+      } else {
+        registerCloudTopic(topic, readingsLength);
+      }
       setActivePointCloudTopic((prev) => prev || topic);
       setLatestFrame({ topic, time, messageType: "LaserScan", preview: `${readingsLength} projected scan points` });
     }
@@ -230,28 +259,21 @@ function App() {
       const { topic, renderable, frameCount, time, frameId, resolvedFrame } = ev.data as {
         topic: string; renderable: Point3D[]; frameCount: number; time: string; frameId: string; resolvedFrame: string;
       };
-      enqueuePointCloud({ topic, points: renderable, frameCount, frameId, resolvedFrame, time });
+      if (lidarPageOpen) {
+        enqueuePointCloud({ topic, points: renderable, frameCount, frameId, resolvedFrame, time });
+      } else {
+        registerCloudTopic(topic, frameCount ?? renderable.length);
+      }
       setActivePointCloudTopic((prev) => prev || topic);
       setLatestFrame({ topic, time, messageType: "PointCloud2", preview: `${renderable.length} sampled 3D points` });
     }
 
     if (type === "cloud-skipped") {
-      // A non-active cloud the worker chose not to fully process. Register the
-      // topic (with its raw point count) so it still appears in the picker and
-      // auto-selection can compare it — but do no heavy work.
+      // A non-active cloud the worker chose not to fully process.
       const { topic, n } = ev.data as { topic: string; n: number };
-      setPointClouds((prev) => {
-        const existing = prev[topic];
-        if (existing && existing.pointCount === n && existing.points.length === 0) return prev;
-        return {
-          ...prev,
-          [topic]: existing
-            ? { ...existing, pointCount: n }
-            : { points: [], frameId: "", resolvedFrame: "", pointCount: n },
-        };
-      });
+      registerCloudTopic(topic, n);
     }
-  }, [enqueuePointCloud]);
+  }, [enqueuePointCloud, registerCloudTopic, setLatestFrame]);
 
   const { connected: backendConnected, wsStatus, sendMessage, setActiveTopic: setWorkerActiveTopic } = useLiveTelemetry({
     url: WS_URL,
@@ -259,11 +281,19 @@ function App() {
     onWorkerMessage: handleWorkerMessage,
   });
 
+  // The lidar firehose (~21 MB/s off the vehicle) only runs while the LiDAR
+  // page is actually open. Initial mode is "perception", so the pipeline starts
+  // cold and the backend unsubscribes the heavy topics whenever we leave.
   useEffect(() => {
     if (backendConnected) {
-      sendMessage({ type: "start-lidar" });
+      sendMessage({ type: mode === "debug" ? "start-lidar" : "stop-lidar" });
     }
-  }, [backendConnected, sendMessage]);
+    if (mode !== "debug") {
+      // Drop any point-cloud packets still waiting for their 100 ms flush so a
+      // page switch doesn't land one last heavy setPointClouds.
+      clearPointCloudBuffer();
+    }
+  }, [backendConnected, clearPointCloudBuffer, mode, sendMessage]);
 
   // Tell the worker which cloud is on screen so it only does the heavy
   // filter/downsample for that one (the other live clouds are dropped cheaply).

@@ -105,5 +105,12 @@ export function createMqttBridgeSource({ emit, url } = {}) {
     emit(getStatus());
   }
 
-  return { getStatus, start, stop };
+  // MQTT subscribes with wildcards, so lidar topics can't be dropped at the
+  // transport. These exist so stop-lidar never falls back to a full stop()
+  // (which would kill telemetry/camera too) — the server's broadcast filter
+  // discards scan/point-cloud envelopes while lidar streaming is off.
+  function startLidar() {}
+  function stopLidar() {}
+
+  return { getStatus, start, stop, startLidar, stopLidar };
 }
