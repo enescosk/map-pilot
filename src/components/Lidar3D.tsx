@@ -319,20 +319,9 @@ function Lidar3D({
       scene.add(label);
     });
 
-    // Direction labels — FRONT/BACK/LEFT/RIGHT, aligned with ROS axes.
-    // ROS x forward → Three.js -Z; ROS y left → Three.js -X.
-    const frontLabel = makeLabelSprite("FRONT", "#fbbf24", 1.15);
-    frontLabel.position.set(0, 1.2, -6);
-    scene.add(frontLabel);
-    const backLabel = makeLabelSprite("BACK", "#cbd5e1", 1.15);
-    backLabel.position.set(0, 1.2, 6);
-    scene.add(backLabel);
-    const leftLabel = makeLabelSprite("LEFT", "#cbd5e1", 1.15);
-    leftLabel.position.set(-5, 1.2, 0);
-    scene.add(leftLabel);
-    const rightLabel = makeLabelSprite("RIGHT", "#cbd5e1", 1.15);
-    rightLabel.position.set(5, 1.2, 0);
-    scene.add(rightLabel);
+    // Direction text labels (FRONT/BACK/LEFT/RIGHT) removed at the user's
+    // request to declutter the view — the ground forward arrow below still
+    // conveys orientation.
 
     // Bright forward-direction arrow on the ground.
     const arrowMat = new THREE.LineBasicMaterial({ color: "#fbbf24", transparent: true, opacity: 0.9 });
