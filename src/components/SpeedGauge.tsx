@@ -48,7 +48,7 @@ export function SpeedGauge({ speedKmh, speedMs }: { speedKmh?: number; speedMs: 
       </div>
       <div className="gauge-subreadout">
         <span>{hasSpeed ? `${formatNumber(speedMs)} m/s` : "veri yok"}</span>
-        <span>{hasSpeed ? `${formatNumber(ratio * 100, 0)}%` : "—"}</span>
+        <span>{hasSpeed ? `${formatNumber(ratio * 100, 0)}%` : "—"}<em>tam ölçek</em></span>
       </div>
     </section>
   );

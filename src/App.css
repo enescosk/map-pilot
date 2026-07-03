@@ -1209,6 +1209,18 @@ button:hover {
   justify-content: center;
 }
 
+/* Clarify that the gauge % is fill toward full scale (40 km/h), not throttle. */
+.gauge-subreadout em {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  margin-left: 4px;
+  text-transform: none;
+}
+
 .gauge-tick-svg {
   fill: #9fb2ca;
   font-size: 13px;
