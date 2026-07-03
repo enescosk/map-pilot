@@ -19,8 +19,14 @@
 //   - heading       <- /heading (passed through, not invented)
 //
 // Everything emitted carries `synthetic: true` so the UI / downstream consumers
-// can flag it as derived rather than measured. Battery / signals / mode / gear
-// are NOT produced here — they have no sensor ground truth.
+// can flag it as derived rather than measured. Signals / mode / gear are NOT
+// produced here — they have no sensor ground truth.
+//
+// FAKE_BATTERY (temporary, remove later): batterySoc/batteryVoltage below are
+// NOT derived from any sensor — there is no battery topic in these bags at all.
+// It's a fabricated slow-drain curve purely so the cockpit gauge isn't empty
+// for a demo. Delete fakeBatteryReading() and its two vehicle.* lines in
+// buildPatch() when a real battery source exists.
 
 import { numberOrUndefined } from "../normalizers/helpers.js";
 
@@ -51,6 +57,12 @@ const DEFAULTS = {
   signalSteerDeg: 15,       // fallback: |steeringAngle| past this counts as a turn
   signalHoldMs: 350,        // intent must persist this long before the blinker lights
   signalReleaseMs: 900,     // keep the blinker on this long after the turn ends
+  // FAKE_BATTERY (temporary, remove later) — see note at top of file.
+  fakeBatteryStartSoc: 92,       // %, at deriver construction (~session start)
+  fakeBatteryDrainPctPerMin: 0.35, // % lost per minute of wall-clock runtime
+  fakeBatteryFloorSoc: 15,       // % — drain never goes below this in a demo
+  fakeBatteryNominalV: 48,       // V at 100% SoC, for a simple SoC->voltage line
+  fakeBatteryMinV: 40,           // V at 0% SoC
 };
 
 // ─── pure helpers (exported for tests) ────────────────────────────────────────
@@ -140,12 +152,35 @@ export function turnIntentFromHeadingRate(rateDps, opts = DEFAULTS) {
   return r > 0 ? "right" : "left";
 }
 
+// FAKE_BATTERY (temporary, remove later): a synthetic slow-drain curve keyed
+// only off wall-clock time since the deriver started — no sensor input at all.
+// Not gated behind DERIVE_VEHICLE's "real CAN wins" rule like the other fields,
+// since there is no real battery signal to ever win over.
+export function fakeBatteryReading(elapsedMs, opts = DEFAULTS) {
+  const elapsedMin = Math.max(0, elapsedMs) / 60000;
+  const soc = Math.max(
+    opts.fakeBatteryFloorSoc,
+    opts.fakeBatteryStartSoc - elapsedMin * opts.fakeBatteryDrainPctPerMin,
+  );
+  const frac = soc / 100;
+  const voltage = opts.fakeBatteryMinV + frac * (opts.fakeBatteryNominalV - opts.fakeBatteryMinV);
+  return {
+    batterySoc: Number(soc.toFixed(1)),
+    batteryVoltage: Number(voltage.toFixed(1)),
+  };
+}
+
 // ─── stateful deriver ─────────────────────────────────────────────────────────
 
 export function createVehicleDeriver(options = {}) {
   const opts = { ...DEFAULTS, ...options };
 
   const state = {
+    // FAKE_BATTERY (temporary, remove later): drain is timed from the first
+    // ingested message's nowMs (not Date.now() at construction), so it uses
+    // the same clock callers already pass in — real usage defaults nowMs to
+    // Date.now(), tests pass synthetic timestamps.
+    fakeBatteryStartMs: undefined,
     // Speed is drawn from the freshest high-priority source (see pickSpeed):
     //   GNSS velocity  >  GPS-position haversine  >  odometry twist.
     speedMps: undefined,      // last emitted/selected speed (also read by tests)
@@ -264,6 +299,7 @@ export function createVehicleDeriver(options = {}) {
   // Build a legacy-shaped telemetry patch from current state, or null if we
   // don't have enough yet / it's too soon since the last emit.
   function buildPatch(nowMs) {
+    if (state.fakeBatteryStartMs === undefined) state.fakeBatteryStartMs = nowMs;
     const speedMps = pickSpeed(nowMs);
     if (speedMps === undefined) return null;
     if (nowMs - state.lastEmitMs < opts.emitIntervalMs) return null;
@@ -308,6 +344,11 @@ export function createVehicleDeriver(options = {}) {
       vehicle.throttlePedalPercent = throttlePercent;
       vehicle.brakePercent = brakePercent;
     }
+
+    // FAKE_BATTERY (temporary, remove later) — see note at top of file.
+    const { batterySoc, batteryVoltage } = fakeBatteryReading(nowMs - state.fakeBatteryStartMs, opts);
+    vehicle.batterySoc = batterySoc;
+    vehicle.batteryVoltage = batteryVoltage;
 
     const telemetry = { synthetic: true, speed: Number(speedMps.toFixed(3)), vehicle };
     if (state.heading !== undefined) telemetry.heading = Number(state.heading.toFixed(2));

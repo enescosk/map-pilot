@@ -9,6 +9,7 @@ import {
   headingRateDps,
   turnIntentFromHeadingRate,
   createVehicleDeriver,
+  fakeBatteryReading,
 } from "../sources/deriveVehicleTelemetry.js";
 
 describe("speedFromGps", () => {
@@ -261,5 +262,49 @@ describe("createVehicleDeriver", () => {
       1100,
     );
     expect(patch.speed).toBeCloseTo(5, 1); // GNSS value retained
+  });
+});
+
+// FAKE_BATTERY (temporary, remove later) — see note at top of deriveVehicleTelemetry.js
+describe("fakeBatteryReading", () => {
+  it("starts at the configured full charge with no elapsed time", () => {
+    const { batterySoc, batteryVoltage } = fakeBatteryReading(0);
+    expect(batterySoc).toBe(92);
+    expect(batteryVoltage).toBeCloseTo(47.4, 1); // 40 + 0.92 * (48 - 40)
+  });
+
+  it("drains linearly with elapsed minutes", () => {
+    const { batterySoc: soc10 } = fakeBatteryReading(10 * 60000);
+    expect(soc10).toBeCloseTo(92 - 10 * 0.35, 2);
+  });
+
+  it("never drains below the configured floor", () => {
+    const { batterySoc } = fakeBatteryReading(10_000 * 60000);
+    expect(batterySoc).toBe(15);
+  });
+
+  it("voltage tracks SoC linearly between min and nominal", () => {
+    const full = fakeBatteryReading(0);
+    const floor = fakeBatteryReading(10_000 * 60000);
+    expect(full.batteryVoltage).toBeGreaterThan(floor.batteryVoltage);
+    expect(floor.batteryVoltage).toBeCloseTo(40 + (15 / 100) * (48 - 40), 1);
+  });
+});
+
+describe("createVehicleDeriver fake battery", () => {
+  it("includes a fake battery reading on every emitted patch", () => {
+    const d = createVehicleDeriver();
+    const patch = d.ingest("/gnss_1/velocity", "twistwithcovariance", { twist: { twist: { linear: { x: 5, y: 0 } } } }, 0);
+    expect(patch.vehicle.batterySoc).toBe(92);
+    expect(patch.vehicle.batteryVoltage).toBeCloseTo(47.4, 1);
+  });
+
+  it("drains battery relative to the first ingested timestamp, not Date.now()", () => {
+    const d = createVehicleDeriver();
+    d.ingest("/gnss_1/velocity", "twistwithcovariance", { twist: { twist: { linear: { x: 5, y: 0 } } } }, 0);
+    // Refresh speed at the later timestamp too (a stale speed sample would
+    // otherwise make buildPatch return null before battery is computed).
+    const later = d.ingest("/gnss_1/velocity", "twistwithcovariance", { twist: { twist: { linear: { x: 5, y: 0 } } } }, 5 * 60000);
+    expect(later.vehicle.batterySoc).toBeCloseTo(92 - 5 * 0.35, 1);
   });
 });
