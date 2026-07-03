@@ -210,4 +210,33 @@ describe("createVehicleDeriver", () => {
     const patch = d.ingest("/gnss_1/velocity", "twistwithcovariance", { twist: { twist: { linear: { x: 5, y: 0 } } } }, 1000);
     expect(patch.heading).toBeCloseTo(78.2, 1);
   });
+
+  it("keeps updating speed from odometry when GNSS velocity goes stale", () => {
+    const d = createVehicleDeriver();
+    // GNSS velocity seen once, then stops publishing (mid-loop bag segment).
+    d.ingest("/gnss_1/velocity", "twistwithcovariance", { twist: { twist: { linear: { x: 5, y: 0 } } } }, 0);
+    // Odometry keeps flowing with a *different*, changing speed. After the GNSS
+    // freshness window it must take over instead of freezing at the last GNSS value.
+    const patch = d.ingest(
+      "/ekf/odometry_earth",
+      "nav_msgs/Odometry",
+      { twist: { twist: { linear: { x: 9, y: 0 } } } },
+      2000,
+    );
+    expect(patch).not.toBeNull();
+    expect(patch.speed).toBeCloseTo(9, 1); // odometry value, not the stale 5
+  });
+
+  it("prefers fresh GNSS velocity over odometry", () => {
+    const d = createVehicleDeriver();
+    d.ingest("/gnss_1/velocity", "twistwithcovariance", { twist: { twist: { linear: { x: 5, y: 0 } } } }, 1000);
+    // Odometry arrives while GNSS is still fresh — should be ignored.
+    const patch = d.ingest(
+      "/ekf/odometry_earth",
+      "nav_msgs/Odometry",
+      { twist: { twist: { linear: { x: 9, y: 0 } } } },
+      1100,
+    );
+    expect(patch.speed).toBeCloseTo(5, 1); // GNSS value retained
+  });
 });

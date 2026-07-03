@@ -35,6 +35,7 @@ const DEFAULTS = {
   maxDecel: 3.0,            // m/s^2 mapped to 100% brake
   accelDeadbandMps2: 0.2,   // ignore tiny accel noise around 0
   emitIntervalMs: 66,       // throttle output to ~15 Hz
+  gnssVelFreshMs: 1000,     // if no /gnss_1/velocity within this window, fall back to odometry speed
   // Turn signals are driven by how fast the heading is changing (deg/s), which
   // tracks real cornering far more reliably than the small derived steering
   // angle (real bags show only a few degrees of derived steer through a 90°+
@@ -122,6 +123,7 @@ export function createVehicleDeriver(options = {}) {
 
   const state = {
     speedMps: undefined,
+    lastGnssVelMs: -Infinity, // when we last got a fresh /gnss_1/velocity sample
     yawRateRadps: undefined,
     accelXMps2: undefined,
     heading: undefined,
@@ -147,12 +149,18 @@ export function createVehicleDeriver(options = {}) {
 
     if (t.endsWith("/velocity") || ty.includes("twistwithcovariance")) {
       const linear = msg?.twist?.twist?.linear ?? msg?.twist?.linear;
-      if (linear) state.speedMps = speedFromTwist(linear);
+      if (linear) {
+        state.speedMps = speedFromTwist(linear);
+        state.lastGnssVelMs = nowMs;
+      }
       return;
     }
     if (ty.includes("odometry") || t.includes("odom")) {
-      // Fallback speed source only if GNSS velocity hasn't been seen.
-      if (state.speedMps === undefined) {
+      // Odometry is the fallback speed source. GNSS velocity is preferred, but
+      // some bag segments stop publishing /gnss_1/velocity mid-loop — so we take
+      // over from odometry whenever GNSS has gone stale, not just on the very
+      // first sample (otherwise speed freezes at the last GNSS value).
+      if (nowMs - state.lastGnssVelMs > opts.gnssVelFreshMs) {
         const linear = msg?.twist?.twist?.linear;
         if (linear) state.speedMps = speedFromTwist(linear);
       }
