@@ -247,23 +247,62 @@ function Lidar3D({
       opacity: 0.45,
     });
     const ringDistances = [1, 2, 5, 10, 20, 30, 50, 80];
-    const makeLabelSprite = (text: string, color = "#7dd3fc") => {
+    // Labels sit inside the point cloud, so bare text washes out against bright
+    // points. Each label gets a dark rounded pill + outline for contrast, and is
+    // rendered at a constant screen size (sizeAttenuation:false) so orientation
+    // markers stay readable and never balloon when the camera zooms in close.
+    const makeLabelSprite = (text: string, color = "#7dd3fc", sizeScale = 1) => {
       const canvas = document.createElement("canvas");
-      canvas.width = 128;
-      canvas.height = 64;
       const ctx = canvas.getContext("2d");
-      if (ctx) {
-        ctx.fillStyle = color;
-        ctx.font = "bold 36px ui-sans-serif, system-ui, sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(text, 64, 32);
-      }
+      if (!ctx) return new THREE.Sprite();
+      const fontPx = 48;
+      const padX = 18;
+      const padY = 12;
+      const font = `bold ${fontPx}px ui-sans-serif, system-ui, sans-serif`;
+      ctx.font = font;
+      const textW = Math.ceil(ctx.measureText(text).width);
+      const w = textW + padX * 2;
+      const h = fontPx + padY * 2;
+      canvas.width = w;
+      canvas.height = h;
+      // Canvas resets on resize — reapply text settings.
+      ctx.font = font;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const cx = w / 2;
+      const cy = h / 2;
+      const r = h / 2;
+      // Background pill + subtle accent border.
+      ctx.fillStyle = "rgba(4, 10, 18, 0.85)";
+      ctx.beginPath();
+      ctx.roundRect(1, 1, w - 2, h - 2, r);
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "rgba(125, 211, 252, 0.22)";
+      ctx.stroke();
+      // Dark outline under the glyphs for extra separation from the point cloud.
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.6)";
+      ctx.strokeText(text, cx, cy + 1);
+      ctx.fillStyle = color;
+      ctx.fillText(text, cx, cy + 1);
+
       const texture = new THREE.CanvasTexture(canvas);
       texture.minFilter = THREE.LinearFilter;
-      const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
+      const mat = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        depthTest: false,
+        sizeAttenuation: false,
+      });
       const sprite = new THREE.Sprite(mat);
-      sprite.scale.set(4, 2, 1);
+      // Draw labels after the point cloud regardless of depth-sorted distance —
+      // otherwise a far label (e.g. FRONT at -z) gets painted over by nearer
+      // points and loses its background pill.
+      sprite.renderOrder = 999;
+      // Constant screen-space size; preserve the label's aspect ratio.
+      const base = 0.05 * sizeScale;
+      sprite.scale.set(base * (w / h), base, 1);
       return sprite;
     };
     ringDistances.forEach((radius) => {
@@ -275,23 +314,23 @@ function Lidar3D({
       const ring = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(ringPoints), ringMaterial);
       scene.add(ring);
       // Label the ring along the +x (right) axis in Three.js space.
-      const label = makeLabelSprite(`${radius}m`);
+      const label = makeLabelSprite(`${radius}m`, "#7dd3fc", 0.8);
       label.position.set(radius, 0.6, 0);
       scene.add(label);
     });
 
     // Direction labels — FRONT/BACK/LEFT/RIGHT, aligned with ROS axes.
     // ROS x forward → Three.js -Z; ROS y left → Three.js -X.
-    const frontLabel = makeLabelSprite("FRONT", "#fbbf24");
+    const frontLabel = makeLabelSprite("FRONT", "#fbbf24", 1.15);
     frontLabel.position.set(0, 1.2, -6);
     scene.add(frontLabel);
-    const backLabel = makeLabelSprite("BACK", "#64748b");
+    const backLabel = makeLabelSprite("BACK", "#cbd5e1", 1.15);
     backLabel.position.set(0, 1.2, 6);
     scene.add(backLabel);
-    const leftLabel = makeLabelSprite("LEFT", "#94a3b8");
+    const leftLabel = makeLabelSprite("LEFT", "#cbd5e1", 1.15);
     leftLabel.position.set(-5, 1.2, 0);
     scene.add(leftLabel);
-    const rightLabel = makeLabelSprite("RIGHT", "#94a3b8");
+    const rightLabel = makeLabelSprite("RIGHT", "#cbd5e1", 1.15);
     rightLabel.position.set(5, 1.2, 0);
     scene.add(rightLabel);
 
