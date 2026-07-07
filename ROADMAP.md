@@ -5,96 +5,104 @@ Bu dosya demo sonrası planı tutar. Her madde bittiğinde commit message'da
 
 ---
 
-## 📍 Şu Anki Durum (2026-06-08, commit 690bf56)
+## 📍 Şu Anki Durum (2026-07-07, commit e9285c8)
+
+**Sağlık göstergeleri:** 346/346 test geçiyor · `tsc --noEmit` temiz · `vite build` çalışıyor.
 
 ### Çalışan
-- ✅ Cockpit sayfası: hız, GPS, steering, brake, throttle, EPS, battery, heading
-- ✅ Kamera akışı (zed2i compressed, JSON path)
-- ✅ Rosbridge canlı bağlantı (172.22.78.35:9090)
-- ✅ Telemetri throttle (33ms batch)
-- ✅ Hız doğru hesaplanıyor (`VelocityMS × 0.01 × 3.6`)
-- ✅ CAN sıfır frame'leri filtreleniyor (vehicle.js + topicMap.js + derivedTelemetry.js)
-- ✅ Web Worker JSON parse + lidar filter off main thread
-- ✅ Binary point-cloud protocol (server tarafında çalışıyor)
-- ✅ In-place GPU buffer Three.js (43 MB/s GC churn → 0)
-- ✅ Decision Log kompakt
-- ✅ 275/275 test geçiyor
+- ✅ **Cockpit sayfası** — hız gauge, GPS (lat/lon/alt), heading, steering, brake,
+  throttle, EPS, battery, sürüş modu
+- ✅ **Türetilmiş telemetri** — kokpit metrikleri hareket sensörlerinden türetiliyor
+  (`DERIVE_VEHICLE=true` gerektirir; bkz. `npm run live-ros`)
+- ✅ **Hız** — GPS konumundan hesaplanıyor (odometry `twist=0` donma bug'ı çözüldü)
+- ✅ **Dönüş sinyali** — heading değişim hızından türetiliyor (steering açısından değil)
+- ✅ **Kamera akışı** — zed2i compressed, canlı
+- ✅ **Harita** — OpenStreetMap, canlı GPS pin'i
+- ✅ **LiDAR 3D render** — nokta bulutu tarayıcıda çiziliyor; pipeline sadece LiDAR
+  sayfasında aktif (gate'li), doğrudan Float32 decode, in-place GPU buffer
+- ✅ **Vehicle Control paneli** — steering / cruise / brake / mode, ARM + deadman
+- ✅ **E-STOP** — sekizgen dur-tabelası butonu, SPACE kısayolu, disarm'da nötr komut
+- ✅ **Rosbridge canlı bağlantı** + otomatik yeniden bağlanma (backoff reset)
+- ✅ **Reconnect snapshot** — bağlantı kurulunca kümülatif telemetri snapshot'ı
+  gönderiliyor (`server/index.js`), kartlar boş kalmıyor
+- ✅ **MQTT köprüsü** — dashboard ↔ araç arası alternatif taşıma (rosbridge yoksa)
+- ✅ **Control safety** — komutlar topic başına rate-limit'li
+- ✅ **Topic sağlık servisi** — per-topic lastSeen / fresh-stale takibi (backend)
+- ✅ **Decision Log** — kompakt, boş-durum destekli
+- ✅ **Tek komut demo** — `npm run demo` / `npm run demo:down` (scripts/)
 
-### Çalışmayan / Şüpheli
-- ❓ LiDAR frontend render — backend frame yolluyor, browser çizmiyor.
-  Son fix (`690bf56`) alignment padding ekledi, **demo öncesi 5 dk denenecek**.
-- ⚠️ Rosbridge'den gelen camera-frame `_type` yok diye dropplanabilir bazı
-  topic'lerde (compressed image OK çünkü topic name eşleşiyor).
+### Kaldırılanlar (bilinçli sadeleştirme)
+- ❌ Bag playback (`bagPlaybackSource.js`) — canlı odaklı sisteme geçildi;
+  normalizer'lar bağımsızlaştırılıp korundu
+- ❌ LiDAR birikimli harita (Map) görünümü
+- ❌ Start/Stop LiDAR + Start/Stop Mapping butonları
+- ❌ Sunum deck'i ve ekran görüntüleri (repo dışına)
+
+### Geçici / Borç
+- ⚠️ **Sahte batarya değeri** — `deriveVehicleTelemetry.js` içinde placeholder;
+  gerçek batarya topic'i gelince kaldırılacak (`feat: temporary fake battery`)
 
 ---
 
-## 🎯 Önümüzdeki Hafta — Öncelik Sırası
+## 🎯 Öncelik Sırası
 
-### P0 — LiDAR Render Bug Avı (yarım gün)
+### P0 — CI Kurulumu (yarım gün, düşük risk)
 
-**Hipotez sırası**:
+Sistem 346 teste sahip ama **hiçbir otomasyon çalıştırmıyor**. En yüksek
+değer/risk oranı burada.
 
-1. **Worker error**: Browser F12 console'da `worker-error` mesajı var mı?
-   - `frameWorker.ts:166` artık try/catch ile hata fırlatıyor
-   - Varsa hata mesajından kaynağa git
-2. **cloud-ready ulaşıyor mu**: App.tsx:1492 `handleWorkerMessage` çağrılıyor mu?
-   - `console.log` ekle, geçici olarak
-3. **setPointClouds güncelleniyor mu**: `pointClouds` state'i debug etmek için
-   React DevTools ile bak
-4. **Three.js render**: `displayPoints.length > 0` ama nokta görünmüyorsa,
-   `pointToDisplayThree` koordinat dönüşümünde z=0'a sıkışıyor olabilir
-5. **Frame ID problemi**: `activeTopic` doğru topic'e kilitleniyor mu?
+- [ ] `.github/workflows/ci.yml` — her push/PR'da:
+  `npm ci` → `npm test` → `npx tsc --noEmit` → `npx vite build`
+- [ ] Node sürümü matrix'i (repoda kullanılan sürüm)
+- [ ] Yeşil badge README'ye
 
-**Test bag**: `2025-07-21-16-54-43.bag` — bu bag'de zed2i + rslidar var.
+### P1 — Kayıt & Replay (2-3 gün)
 
-### P1 — Performans (1-2 gün, dikkatli)
+Canlı oturumu diske yazıp sonradan oynatma. Altyapı hazır: her envelope zaten
+`telemetryBus` üzerinden tek noktadan akıyor.
 
-`2c72901` baseline'a döndük. O zaman kaybolan iyileştirmeleri **küçük PR'lar
-halinde** geri getir:
+1. **Recorder** — `telemetryBus` ENVELOPE aboneliği, `.ndjson` olarak diske yaz
+   (timestamp + envelope). Env flag ile aç/kapa (`RECORD=true`).
+2. **replaySource.js** — `directLidarSource` / `mqttBridgeSource` deseninde yeni
+   source; `.ndjson`'u zaman damgalarına göre oynatır (gerçek zamanlı veya hızlı).
+3. **UI** — kayıt dosyası seç + oynat/duraklat/hız kontrolü (bağlantı panelinde mod).
+4. **Test** — recorder round-trip (yaz → oku → byte-identical), replay zamanlaması.
 
-1. **Uint8Array support** (`server/normalizers/image.js`)
-   - rosbag library `Uint8Array` döner, kontrol etmiyoruz → bag'den image gelmiyor
-   - 10 satır fix, izole test edilebilir
-2. **Rosbridge type inference** (`server/sources/vehicleRosSource.js`)
-   - rosbridge v0.11+ `_type` göndermiyor → topic name'den türet
-   - `inferRosTypeFromTopic()` helper, izole test edilebilir
-3. **Idempotent socket** (`server/sources/vehicleRosSource.js`)
-   - Çift connect-source'da "closed before established" hatası
-   - State guard + `if (socket !== rosSocket) return` pattern
-4. **CameraViewer subscribe-after-mount** (`src/App.tsx`)
-   - `isBinary` dependency'ye eklenmeli, canvas mount'tan sonra subscribe
-5. **Camera binary protocol** (server + worker + viewer)
-   - Base64 data URL yerine raw JPEG bytes
-   - Worker'da `createImageBitmap` off main thread
-   - Canvas'a transferable bitmap
+### P2 — E2E Smoke Testleri (1-2 gün, CI'dan sonra)
 
-### P2 — Mimari (1 hafta)
+Playwright dependency olarak var ama config/test yok.
 
-1. **Zustand migration**
-   - App.tsx 19 useState → tek dashboardStore
-   - Panel'ler `useDashboardStore(s => s.x)` ile topic-bazlı subscribe olur
-   - **Beklenen**: panel re-render'ları 5-10× azalır
-   - Stub zaten var: `src/store/dashboardStore.ts` (revert'te silindi, geri ekle)
-2. **App.tsx parçalama**
-   - 1687 satır → 200 satır hedef
-   - `Lidar3D`, `LidarWorkspace`, `Lidar2D` ayrı dosyaya
-   - `VehicleCockpit`, `SpeedGauge` zaten `components/` altında ama
-     App.tsx kendi inline tanımlarını kullanıyor — duplicate'ler silinmeli
-3. **Playwright perf baseline**
-   - `e2e/perf.spec.ts` regression detector
-   - p95 long task < 50ms hedefi
+- [ ] `playwright.config.ts` + `e2e/` klasörü
+- [ ] Smoke: sayfa açılıyor, Cockpit ↔ LiDAR geçişi çalışıyor
+- [ ] Synthetic source ile: gauge veri gösteriyor, kartlar dolu
+- [ ] E-STOP butonu görünür ve tıklanabilir
+- [ ] CI'a `e2e` job'ı olarak ekle (backend + frontend ayağa kaldırıp koş)
 
-### P3 — Demo Sonrası Polish
+### P3 — Güvenilirlik Sertleştirme (dağınık, canlı araçta kritik)
 
-- **Snapshot-on-reconnect**: Reconnect'te tüm telemetry store snapshot'ı,
-  şu an son envelope gönderiyor — bazı alanlar boş kalıyor
-- **Bag playback kaldır** (kullanıcı isteği): canlı odaklı sistem
-  - `useBagPlayback`, `BagDetailsPanel`, `bagPlaybackSource.js`
-  - UI'daki bag picker dropdown
-  - App.tsx'teki bag state'leri (~30 değişiklik)
-- **Server-side bag queue heap**: `Array.sort` her mesajda → O(N log N), heap'e çevir
-- **TF tree visualization** (Foxglove'un yaptığı gibi)
-- **Multi-source/multi-bag synchronized playback** (uzun vadeli)
+1. **Stale-data watchdog (UI)** — backend'de `topicHealthService` var ama UI'da
+   her karta bağlı değil. Bir topic X sn susarsa kartı gri/uyarı durumuna al;
+   gauge son değeri "canlı" gibi göstermesin.
+2. **E-STOP onay döngüsü** — şu an "komut gönderildi" diyor; `autonomous_report` /
+   brake response'tan aracın gerçekten durduğunu doğrula. "gönderildi ≠ uygulandı".
+3. **Sahte batarya kaldır** — gerçek topic geldiğinde placeholder'ı temizle.
+
+### P4 — Performans / State (ölçümden sonra, dikkatli)
+
+⚠️ **Önce ölç, sonra dokun.** App.tsx artık 431 satır (temiz), acil bir sorun
+yok. Sadece profiler gerçek bir darboğaz gösterirse:
+
+1. **Store migration** — App.tsx 18 hook → merkezi store (Zustand veya
+   context+reducer). Paneller topic-bazlı subscribe olur, re-render azalır.
+   Ölçüm olmadan spekülatif; React DevTools Profiler ile baseline al.
+2. **Playwright perf baseline** — p95 long task < 50ms regresyon dedektörü.
+
+### P5 — Uzun Vadeli (fikir havuzu)
+
+- TF tree görselleştirme
+- Çoklu kamera / çoklu LiDAR yerleşimi
+- Olay/alarm şeridi (E-STOP, bağlantı kopması, mod değişimi — zaman damgalı log)
+- Mod-farkındalıklı UI kilidi (yanlış modda komut göndermeyi önle)
 
 ---
 
@@ -102,109 +110,64 @@ halinde** geri getir:
 
 ### Hız Bug'ları
 1. `VelocityKMH × 0.1` yanlış scale — `VelocityMS × 0.01 × 3.6` doğru
-2. CAN bus boş frame'lerde `VelocityMS=0` gönderiyor — her saniye 50 frame'de
-   sadece 1 tanesi gerçek değer. Sıfır filtrelendi.
-3. Odom `twist.linear=0` paketleri de sıfır speed yazıyordu — derivedTelemetry'de
-   `speedMps > 0` kontrolü eklendi.
+2. CAN bus boş frame'lerde `VelocityMS=0` gönderiyor — 50 frame'de 1'i gerçek.
+   Sıfırlar filtrelendi.
+3. Odom `twist.linear=0` paketleri de sıfır hız yazıyordu — `speedMps > 0` kontrolü.
+4. Odometry fallback'te hız donuyordu → hız GPS **konumundan** hesaplanıyor artık.
 
 ### Binary Protocol Bug'ları
-1. `Float32Array(buf, offset)` 4-byte aligned offset gerektiriyor — header pad
-   eklenmedi → tüm point cloud'lar sessizce drop edildi.
-2. `compressedImageToSource` `Uint8Array` desteklemiyordu — rosbag'den image
-   geliyordu ama empty string dönüyordu.
-3. `rosbridge_server v0.11+` `_type` field'ı göndermiyor — normalizer dispatch
-   `lowerType.includes(...)` ile çalıştığı için her mesaj droppanıyordu.
-4. Çift `connect-source` (UI double-click veya StrictMode) — eski socket
-   CONNECTING durumdayken yeni socket açılıyor → "closed before established"
-   hatası UI'da görünüyordu.
-5. `CameraViewer` subscribe useEffect canvas mount'tan önce çalışıyordu →
-   bitmap'ler canvas'a hiç boyanmıyordu.
+1. `Float32Array(buf, offset)` 4-byte aligned offset ister — header pad eklenmezse
+   tüm nokta bulutları sessizce drop olur.
+2. `rosbridge_server v0.11+` `_type` göndermiyor — normalizer dispatch topic
+   adından tür türetmeli.
+3. Çift `connect-source` (StrictMode / double-click) — "closed before established";
+   state guard ile çözüldü.
 
-### React Bug'ları
-1. App.tsx 19 useState root'ta → tüm panel'ler her güncellemede reconcile
-   (yaklaşık 5000 component diff invocation / saniye yoğun yükte)
-2. `setLatestFrame` 6 farklı yerden 100+ Hz çağrılıyordu → throttle eklendi
-3. `JSON.stringify(packet.telemetry).slice(0, 220)` her telemetry frame'de
-   main thread'de çalışıyordu — preview field için
-4. Lidar3D'de Three.js geometry her frame'de yaratılıp dispose ediliyordu →
-   ~43 MB/s GC churn
-
-### CSS Bug'ları
-1. `text-overflow: ellipsis` `.panel-titlebar span` → "Vehicle Cockpit"
-   "Vehicle Cock..." şeklinde kesiliyordu (utanç verici)
-2. Sabit `font-size: 1.08rem` + `overflow: hidden` ebeveyn → GPS koordinatları
-   görünmez kesiliyordu. `clamp()` + ellipsis fallback çözdü.
-3. `cockpit-status-grid` `grid-template-columns: repeat(4, 1fr)` → dar panelde
-   kart'lar kırpılıyordu. `auto-fit minmax(130px, 1fr)` çözdü.
+### React / Perf Bug'ları
+1. Root'ta çok sayıda useState → her güncellemede tüm paneller reconcile.
+   Paneller `memo`'landı (VehicleCockpit / MapPanel / CameraViewer / LidarWorkspace).
+2. Three.js geometry her frame'de yaratılıp dispose ediliyordu → ~43 MB/s GC churn;
+   in-place GPU buffer'a geçildi.
+3. Nokta bulutu ara obje dizisi üzerinden decode ediliyordu → doğrudan Float32.
+4. Arka planda sınırsız büyüyen telemetri buffer'ı donmaya yol açıyordu → sınırlandı.
+5. LiDAR pipeline her sayfada çalışıyordu → sadece LiDAR sayfasına gate'lendi.
 
 ---
 
 ## 🚨 Yapma Notları (kendime)
 
-- **Demo'dan günler önce büyük refactor yapma** — küçük PR'lar, her birini
-  kullanıcı doğrular
+- **Demo'dan günler önce büyük refactor yapma** — küçük PR'lar, her birini doğrula
+- **Perf işine ölçmeden girme** — profiler baseline olmadan "hızlandırma" spekülatif
 - **Browser console hatalarını mutlaka iste** — backend log'ları yetmez
-- **Domain-spesifik bug'lar için gerçek veriyi incele** — `node` ile direkt
-  rosbag açıp gerçek değerleri gör, varsayım yapma
-- **`git revert` > `git reset --hard`** — push'lanmış commit'leri silmek
-  yerine ters çevir, history bozulmaz
-- **Test ve TypeScript her commit'te yeşil kalsın** — 275/275 disiplini
-- **`Foxglove gibi yapalım` cazip ama tehlikeli** — onlar 200 dev-yıl
-  yatırım yapmış, biz fokuslu bir dashboard yapıyoruz
+- **Domain bug'ları için gerçek veriyi incele** — varsayım yapma, `node` ile aç bak
+- **`git revert` > `git reset --hard`** — push'lanmışı ters çevir, history bozma
+- **Test ve TypeScript her commit'te yeşil kalsın** — 346/346 disiplini
+- **`Foxglove gibi yapalım` cazip ama tehlikeli** — fokuslu bir dashboard yapıyoruz
 
 ---
 
 ## 📎 Faydalı Komutlar
 
 ```bash
-# Backend başlat
-node server/index.js
+# Canlı araç (türetilmiş telemetri açık)
+npm run live-ros          # LIDAR_SOURCE=vehicle-ros DERIVE_VEHICLE=true
 
-# Dev server
-npm run dev
+# Tek komut demo
+npm run demo              # ayağa kaldır
+npm run demo:down         # kapat
 
-# Test
-npx vitest run
+# Ayrı ayrı
+npm run server            # backend  → ws://localhost:4000
+npm run dev               # frontend → http://localhost:5173
 
-# Type check
-npx tsc --noEmit
+# Diğer modlar
+npm run dashboard-mqtt    # MQTT köprüsü (rosbridge yoksa)
+npm run vehicle-live      # araç tarafı, MQTT publish açık
 
-# Production build
-npx vite build
-
-# Backend'in ne gönderdiğini gör (vehicle-ros bağlantısı)
-node --input-type=module << 'EOF'
-import WebSocket from 'ws';
-const ws = new WebSocket('ws://localhost:4000');
-const types = new Map();
-ws.on('open', () => {
-  ws.send(JSON.stringify({ type: 'connect-source', source: 'vehicle-ros',
-    rosbridgeUrl: 'ws://172.22.78.35:9090' }));
-  setTimeout(() => {
-    for (const [t,c] of [...types.entries()].sort((a,b)=>b[1]-a[1])) console.log(`${c}x  ${t}`);
-    process.exit(0);
-  }, 8000);
-});
-ws.on('message', (data) => {
-  if (data[0] === 0x7b) {
-    const msg = JSON.parse(data.toString());
-    types.set('JSON:'+msg.type, (types.get('JSON:'+msg.type)||0)+1);
-  } else {
-    const headerLen = data.readUInt32LE(0);
-    const header = JSON.parse(data.subarray(4, 4 + headerLen).toString('utf8'));
-    types.set('BIN:'+header.type, (types.get('BIN:'+header.type)||0)+1);
-  }
-});
-EOF
-
-# Bag dosyasındaki topic'leri listele
-node --input-type=module << 'EOF'
-import Bag from 'rosbag';
-const bag = await Bag.open('/path/to/file.bag');
-for (const [, conn] of Object.entries(bag.connections)) {
-  console.log(`${conn.topic}  [${conn.type}]`);
-}
-EOF
+# Kalite kapıları
+npx vitest run            # 346 test
+npx tsc --noEmit          # tip kontrolü
+npx vite build            # production build
 ```
 
 ---
@@ -214,6 +177,5 @@ EOF
 - Dashboard bilgisayarı: `172.22.78.39`
 - Araç bilgisayarı: `172.22.78.35`
 - Rosbridge: `ws://172.22.78.35:9090`
-- Bag dizini: `~/Desktop/enes_ws/bag/`
 - Frontend: `http://localhost:5173`
 - Backend WS: `ws://localhost:4000`
