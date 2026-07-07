@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import ConnectionPanel from "./components/ConnectionPanel";
 import DiscoveredTopicsPanel from "./components/DiscoveredTopicsPanel";
+import RawMessagePanel from "./components/RawMessagePanel";
 import DecisionLogPanel from "./components/DecisionLogPanel";
 import TopicHealthStrip from "./components/TopicHealthStrip";
 import { SparkChart } from "./components/SparkChart";
@@ -15,7 +16,7 @@ import { useDashboardTelemetry } from "./hooks/useDashboardTelemetry";
 import { useLiveTelemetry } from "./hooks/useLiveTelemetry";
 import { usePointCloudBuffer, type PendingPointCloudPacket } from "./hooks/usePointCloudBuffer";
 import { useTopicHealth } from "./hooks/useTopicHealth";
-import type { CameraFrameMessage, CameraStreamMessage, LatestFrame, LidarReading, LiveMessage, Point3D, TelemetryMessage, TopicInfo } from "./types/liveMessages";
+import type { CameraFrameMessage, CameraStreamMessage, LatestFrame, LidarReading, LiveMessage, Point3D, RawMessage, TelemetryMessage, TopicInfo } from "./types/liveMessages";
 import {
   LIDAR_FILTER_VERSION,
   POINT_CLOUD_FLUSH_MS,
@@ -87,6 +88,9 @@ function App() {
   const [latestFrame, setLatestFrameState] = useState<LatestFrame>();
   // Faz 1: topics the vehicle advertises (from /rosapi/topics). Discovery only.
   const [advertisedTopics, setAdvertisedTopics] = useState<TopicInfo[]>([]);
+  // Faz 2: topics the user picked for raw inspection + their latest message.
+  const [selectedTopics, setSelectedTopics] = useState<Set<string>>(new Set());
+  const [rawMessages, setRawMessages] = useState<Record<string, RawMessage>>({});
   // Throttle latestFrame to ≤10 fps. Topic panel doesn't need 100+ updates/sec.
   const latestFrameRef = useRef<LatestFrame | undefined>(undefined);
   const latestFrameTimerRef = useRef<number | undefined>(undefined);
@@ -212,6 +216,11 @@ function App() {
         if (packet.type === "topic-list" && Array.isArray(packet.topics)) {
           setAdvertisedTopics(packet.topics);
         }
+
+        if (packet.type === "raw-message" && typeof packet.topic === "string") {
+          const raw = packet as RawMessage;
+          setRawMessages((prev) => ({ ...prev, [raw.topic]: raw }));
+        }
   }, [
     handleCameraFrame,
     handleCameraStream,
@@ -330,6 +339,26 @@ function App() {
     sendMessage({ type: "connect-source", source, rosbridgeUrl, mqttUrl });
   }
 
+  // Faz 2: toggle a topic's raw subscription. Picking sends subscribe-topic to
+  // the backend; unpicking unsubscribes and drops its last cached message.
+  const toggleTopic = useCallback((topic: string) => {
+    setSelectedTopics((prev) => {
+      const next = new Set(prev);
+      if (next.has(topic)) {
+        next.delete(topic);
+        sendMessage({ type: "unsubscribe-topic", topic });
+        setRawMessages((msgs) => {
+          const { [topic]: _drop, ...rest } = msgs;
+          return rest;
+        });
+      } else {
+        next.add(topic);
+        sendMessage({ type: "subscribe-topic", topic });
+      }
+      return next;
+    });
+  }, [sendMessage]);
+
   return (
     <main className="app-shell">
       <header className="top-bar">
@@ -420,7 +449,12 @@ function App() {
                   color="#fbbf24"
                 />
               </div>
-              <DiscoveredTopicsPanel topics={advertisedTopics} />
+              <DiscoveredTopicsPanel
+                topics={advertisedTopics}
+                selected={selectedTopics}
+                onToggle={toggleTopic}
+              />
+              <RawMessagePanel selected={selectedTopics} messages={rawMessages} />
             </div>
           )}
         </aside>

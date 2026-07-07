@@ -1,9 +1,17 @@
 import { memo } from "react";
 import type { TopicInfo } from "../types/liveMessages";
 
-// Faz 1 — Topic discovery. Read-only view of what the vehicle advertises
-// (from /rosapi/topics). No subscription control yet; that is Faz 2.
-function DiscoveredTopicsPanel({ topics }: { topics: TopicInfo[] }) {
+// Faz 1+2 — Topic discovery + selection. Lists what the vehicle advertises
+// (from /rosapi/topics); clicking a row toggles a raw subscription (Faz 2).
+function DiscoveredTopicsPanel({
+  topics,
+  selected,
+  onToggle,
+}: {
+  topics: TopicInfo[];
+  selected: Set<string>;
+  onToggle: (topic: string) => void;
+}) {
   return (
     <section className="workspace-panel topic-workspace">
       <div className="panel-titlebar">
@@ -16,12 +24,23 @@ function DiscoveredTopicsPanel({ topics }: { topics: TopicInfo[] }) {
         </div>
       ) : (
         <ul className="discovered-topics">
-          {topics.map((t) => (
-            <li key={t.topic} className="discovered-topics__row" title={t.type}>
-              <span className="discovered-topics__name">{t.topic}</span>
-              <span className="discovered-topics__type">{t.type}</span>
-            </li>
-          ))}
+          {topics.map((t) => {
+            const isOn = selected.has(t.topic);
+            return (
+              <li key={t.topic}>
+                <button
+                  type="button"
+                  className={`discovered-topics__row${isOn ? " discovered-topics__row--on" : ""}`}
+                  onClick={() => onToggle(t.topic)}
+                  title={isOn ? "Aboneliği kaldır" : "Ham veriyi izle"}
+                >
+                  <span className="discovered-topics__check">{isOn ? "‣" : ""}</span>
+                  <span className="discovered-topics__name">{t.topic}</span>
+                  <span className="discovered-topics__type">{t.type}</span>
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

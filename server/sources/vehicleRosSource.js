@@ -74,6 +74,9 @@ export function createVehicleRosSource({ emit, url } = {}) {
   let reconnectDelay = 1000;
   const deriver = DERIVE_VEHICLE ? createVehicleDeriver() : null;
   let lastRealCanMs = 0;
+  // Faz 2: user-selected raw topics. Any publish on one of these is forwarded
+  // to the UI verbatim as a raw-message envelope (unparsed inspection view).
+  const rawTopics = new Set();
 
   function getStatus() {
     return {
@@ -101,6 +104,35 @@ export function createVehicleRosSource({ emit, url } = {}) {
       id: TOPIC_LIST_CALL_ID,
       service: "/rosapi/topics",
     }));
+  }
+
+  // Faz 2: subscribe/unsubscribe to a user-picked topic for raw inspection.
+  // Kept independent of the fixed base/lidar sets so it never disturbs them.
+  function subscribeRaw(topic) {
+    if (!topic || rawTopics.has(topic)) return;
+    rawTopics.add(topic);
+    if (rosSocket?.readyState === WebSocket.OPEN) {
+      rosSocket.send(JSON.stringify({ op: "subscribe", topic }));
+    }
+  }
+
+  function unsubscribeRaw(topic) {
+    if (!rawTopics.delete(topic)) return;
+    // Only unsubscribe on the wire if this topic isn't part of a fixed set that
+    // is still active — otherwise we'd stop telemetry/lidar the UI still needs.
+    const stillNeeded =
+      (baseSubscribed && baseTopics.includes(topic)) ||
+      (lidarSubscribed && lidarTopics.includes(topic));
+    if (!stillNeeded && rosSocket?.readyState === WebSocket.OPEN) {
+      rosSocket.send(JSON.stringify({ op: "unsubscribe", topic }));
+    }
+  }
+
+  function subscribeRawTopics() {
+    if (rosSocket?.readyState !== WebSocket.OPEN) return;
+    for (const topic of rawTopics) {
+      rosSocket.send(JSON.stringify({ op: "subscribe", topic }));
+    }
   }
 
   function subscribe() {
@@ -171,6 +203,7 @@ export function createVehicleRosSource({ emit, url } = {}) {
       emit(getStatus());
       subscribe();
       requestTopicList();
+      subscribeRawTopics(); // re-arm user-picked raw topics after a reconnect
     });
 
     rosSocket.on("message", (raw) => {
@@ -197,6 +230,13 @@ export function createVehicleRosSource({ emit, url } = {}) {
 
         const msgType = packet.msg._type || "";
         const time = rosTimeToString(packet.msg.header?.stamp);
+
+        // Faz 2: forward user-picked topics verbatim for the raw inspection view.
+        // Runs alongside normalization so a topic can be both a gauge and a raw
+        // view (e.g. /imu/data). The frontend throttles rendering.
+        if (rawTopics.has(packet.topic)) {
+          emit({ type: "raw-message", source: "vehicle-ros", topic: packet.topic, msgType, time, msg: packet.msg });
+        }
 
         const normalized = normalizeFrame({
           topic: packet.topic,
@@ -264,5 +304,5 @@ export function createVehicleRosSource({ emit, url } = {}) {
     emit(getStatus());
   }
 
-  return { getStatus, start, stop, startLidar, stopLidar };
+  return { getStatus, start, stop, startLidar, stopLidar, subscribeRaw, unsubscribeRaw };
 }

@@ -33,7 +33,10 @@ Bu dosya demo sonrası planı tutar. Her madde bittiğinde commit message'da
 - ✅ **CI** — GitHub Actions her push/PR'da: `npm ci` → tsc → test → build
 - ✅ **Topic keşfi (Faz 1)** — `/rosapi/topics` ile araç yayınladığı tüm topic'ler
   keşfediliyor (gerçek araçta 211 topic), UI'da listeleniyor; liste önbelleğe
-  alınıp geç bağlanan dashboard'a da gönderiliyor. Sadece görüntüleme (abonelik yok).
+  alınıp geç bağlanan dashboard'a da gönderiliyor.
+- ✅ **Topic seçimi + ham veri (Faz 2)** — listeden topic seçince dinamik abone
+  ol (`subscribe-topic`), ham mesaj JSON olarak "Ham Mesajlar" panelinde. Her mesaj
+  tipinde çalışır. Fixed base/lidar aboneliklerine dokunmaz.
 
 ### Kaldırılanlar (bilinçli sadeleştirme)
 - ❌ Bag playback (`bagPlaybackSource.js`) — canlı odaklı sisteme geçildi;
@@ -56,12 +59,12 @@ Bu dosya demo sonrası planı tutar. Her madde bittiğinde commit message'da
   `object-fit: cover`; üst/alt siyah bantlar gitti.
 - [x] **Layout: topic paneli** — sol sütundan sağ sütuna taşındı; cockpit alt
   şeridinde IMU+Speed (üst üste) yanında tam yükseklik topic listesi (211 topic).
+- [x] **Topic seçimi + ham veri (Faz 2)** — kullanıcı listeden topic'e tıklayınca
+  backend `subscribe-topic` ile dinamik abone oluyor; gelen mesaj "Ham Mesajlar"
+  panelinde JSON olarak gösteriliyor. Gerçek araçla doğrulandı (/imu/data).
 - [ ] **Topic paneli: arama/filtre** — 211 topic için arama kutusu.  ← SIRADAKİ
 - [ ] **Kontrol paneli ayrı sayfa** — Vehicle Control (steering/cruise/brake/mode)
   ayrı "Kontrol" sekmesine. E-STOP her sayfada sabit kalır (güvenlik).
-- [ ] **Topic seçimi (Faz 2)** — kullanıcı listeden seçtiği topic'e dinamik abone
-  ol/kaldır. `subscribe`/`unsubscribe` mekanizması var (LiDAR için), genelleştir.
-- [ ] **Ham-JSON paneli (Faz 3, ops)** — tanınmayan tipteki topic'ler için.
 
 
 ### ✅ P0 — CI Kurulumu (BİTTİ, 2026-07-07)

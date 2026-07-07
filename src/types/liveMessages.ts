@@ -122,6 +122,15 @@ export type TopicListMessage = {
   topics: TopicInfo[];
 };
 
+export type RawMessage = {
+  type: "raw-message";
+  source?: string;
+  topic: string;
+  msgType?: string;
+  time?: string;
+  msg: unknown;
+};
+
 export type UnknownLiveMessage = {
   type?: string;
   [key: string]: unknown;
@@ -138,4 +147,5 @@ export type LiveMessage =
   | TopicHealthMessage
   | BackendErrorMessage
   | SourceChangedMessage
-  | TopicListMessage;
+  | TopicListMessage
+  | RawMessage;

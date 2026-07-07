@@ -174,6 +174,74 @@ describe("topic discovery", () => {
   });
 });
 
+// ─── Raw topic subscription (Faz 2) ──────────────────────────────────────────────
+
+describe("raw topic subscription", () => {
+  it("subscribeRaw sends a subscribe op and forwards matching publishes as raw-message", () => {
+    const { source, emitted, socket } = makeSource();
+    source.start();
+    socket()._open();
+    source.subscribeRaw("/some/custom_topic");
+
+    const subs = socket().sent.map((s) => JSON.parse(s)).filter((m) => m.op === "subscribe");
+    expect(subs.map((m) => m.topic)).toContain("/some/custom_topic");
+
+    socket()._publish("/some/custom_topic", { _type: "std_msgs/String", data: "hello" });
+    const raw = emitted.find((e) => e.type === "raw-message");
+    expect(raw).toBeDefined();
+    expect(raw.topic).toBe("/some/custom_topic");
+    expect(raw.msg.data).toBe("hello");
+  });
+
+  it("does not emit raw-message for topics that were not picked", () => {
+    const { source, emitted, socket } = makeSource();
+    source.start();
+    socket()._open();
+    socket()._publish("/unpicked", { _type: "std_msgs/String", data: "x" });
+    expect(emitted.some((e) => e.type === "raw-message")).toBe(false);
+  });
+
+  it("unsubscribeRaw stops forwarding and sends an unsubscribe op", () => {
+    const { source, emitted, socket } = makeSource();
+    source.start();
+    socket()._open();
+    source.subscribeRaw("/some/custom_topic");
+    source.unsubscribeRaw("/some/custom_topic");
+
+    const unsubs = socket().sent.map((s) => JSON.parse(s)).filter((m) => m.op === "unsubscribe");
+    expect(unsubs.map((m) => m.topic)).toContain("/some/custom_topic");
+
+    socket()._publish("/some/custom_topic", { _type: "std_msgs/String", data: "y" });
+    // A normalize envelope may still be emitted for the publish; only the
+    // raw-message forwarding must have stopped.
+    expect(emitted.filter((e) => e.type === "raw-message").length).toBe(0);
+  });
+
+  it("re-subscribes picked raw topics after a reconnect", () => {
+    const { source, socket } = makeSource();
+    source.start();
+    socket()._open();
+    source.subscribeRaw("/some/custom_topic");
+    // simulate a fresh socket open (reconnect)
+    socket()._open();
+    const subs = socket().sent.map((s) => JSON.parse(s)).filter((m) => m.op === "subscribe");
+    expect(subs.map((m) => m.topic).filter((t) => t === "/some/custom_topic").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("unsubscribeRaw does not unsubscribe a topic still in the active base set", () => {
+    const { source, socket } = makeSource();
+    source.start();
+    socket()._open();
+    // /VelocityInformation is a fixed base topic; picking then dropping it must
+    // not sever the base subscription the cockpit still needs.
+    source.subscribeRaw("/VelocityInformation");
+    const before = socket().sent.length;
+    source.unsubscribeRaw("/VelocityInformation");
+    const unsubs = socket().sent.slice(before).map((s) => JSON.parse(s)).filter((m) => m.op === "unsubscribe");
+    expect(unsubs.map((m) => m.topic)).not.toContain("/VelocityInformation");
+  });
+});
+
 // ─── Lifecycle ──────────────────────────────────────────────────────────────────
 
 describe("lifecycle", () => {

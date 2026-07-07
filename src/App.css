@@ -565,15 +565,16 @@ button:hover {
 .cockpit-bottom {
   display: grid;
   gap: 12px;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  align-items: stretch; /* topic panel stretches to match the charts column */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr);
+  align-items: stretch; /* panels stretch to match the charts column */
   min-height: 0;
 }
 
-/* Topic panel is a flex column so its scrollable list fills the whole cell.
-   align-self:stretch + min-height:0 lets the <ul> grow to the charts' height
-   instead of collapsing to its 2-row content. */
-.cockpit-bottom .topic-workspace {
+/* Topic + raw panels are flex columns so their scrollable body fills the whole
+   cell. height:100% + min-height:0 lets the inner list grow to the charts'
+   height instead of collapsing to its content. */
+.cockpit-bottom .topic-workspace,
+.cockpit-bottom .raw-workspace {
   display: flex;
   flex-direction: column;
   align-self: stretch;
@@ -1849,11 +1850,32 @@ button:hover {
 
 .discovered-topics__row {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 3px 10px;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 10px;
   font-size: 0.72rem;
+  border: none;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.discovered-topics__row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.discovered-topics__row--on {
+  background: rgba(56, 189, 248, 0.12);
+}
+
+.discovered-topics__check {
+  width: 10px;
+  flex-shrink: 0;
+  color: var(--accent, #38bdf8);
 }
 
 .discovered-topics__name {
@@ -1871,4 +1893,55 @@ button:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 45%;
+}
+
+/* Faz 2 — raw message inspection */
+.raw-messages {
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.raw-messages__item {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.raw-messages__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.7rem;
+}
+
+.raw-messages__topic {
+  color: var(--text, #e6edf5);
+  font-family: var(--font-mono, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.raw-messages__type {
+  color: var(--text-dim, #8a94a6);
+  flex-shrink: 0;
+}
+
+.raw-messages__body {
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: #9fe6c0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 180px;
+  overflow-y: auto;
 }

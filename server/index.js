@@ -301,6 +301,15 @@ wss.on("connection", (ws) => {
         }
       }
 
+      if (payload.type === "subscribe-topic" && typeof payload.topic === "string") {
+        // Faz 2: user picked a topic in the discovery list — subscribe for raw view.
+        lidarSource?.subscribeRaw?.(payload.topic);
+      }
+
+      if (payload.type === "unsubscribe-topic" && typeof payload.topic === "string") {
+        lidarSource?.unsubscribeRaw?.(payload.topic);
+      }
+
       if (payload.type === "connect-source") {
         const { source, rosbridgeUrl, mqttUrl } = payload;
         const allowed = ["vehicle-ros", "mqtt", "ros"];
