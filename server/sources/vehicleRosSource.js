@@ -57,6 +57,9 @@ export function isLidarTopic(topic) {
     || lower.includes("rslidar") || lower.includes("laser");
 }
 
+// Correlation id for the /rosapi/topics service call so we can match its response.
+const TOPIC_LIST_CALL_ID = "mappilot-topic-list";
+
 export function createVehicleRosSource({ emit, url } = {}) {
   const rosbridgeUrl = url || process.env.ROSBRIDGE_URL || ROSBRIDGE_URL;
   const lidarTopics = LIVE_ROS_TOPICS.filter(isLidarTopic);
@@ -85,6 +88,19 @@ export function createVehicleRosSource({ emit, url } = {}) {
     for (const topic of topics) {
       rosSocket.send(JSON.stringify({ op, topic }));
     }
+  }
+
+  // Ask rosbridge for the full list of advertised topics. Fire-and-forget:
+  // the response arrives as a service_response handled in the message loop.
+  function requestTopicList() {
+    if (!rosSocket || rosSocket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    rosSocket.send(JSON.stringify({
+      op: "call_service",
+      id: TOPIC_LIST_CALL_ID,
+      service: "/rosapi/topics",
+    }));
   }
 
   function subscribe() {
@@ -154,11 +170,27 @@ export function createVehicleRosSource({ emit, url } = {}) {
       connected = true;
       emit(getStatus());
       subscribe();
+      requestTopicList();
     });
 
     rosSocket.on("message", (raw) => {
       try {
         const packet = JSON.parse(raw.toString());
+
+        // Topic discovery (Faz 1): rosbridge answers /rosapi/topics with a
+        // service_response. Surface the advertised topic names to the UI
+        // without touching the fixed subscription set or the data flow.
+        if (packet.op === "service_response" && packet.id === TOPIC_LIST_CALL_ID) {
+          const topics = packet.values?.topics || [];
+          const types = packet.values?.types || [];
+          emit({
+            type: "topic-list",
+            source: "vehicle-ros",
+            topics: topics.map((name, i) => ({ topic: name, type: types[i] || "" })),
+          });
+          return;
+        }
+
         if (packet.op !== "publish" || !packet.topic || !packet.msg) {
           return;
         }

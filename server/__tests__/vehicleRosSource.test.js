@@ -122,6 +122,58 @@ describe("message handling", () => {
   });
 });
 
+// ─── Topic discovery (Faz 1) ────────────────────────────────────────────────────
+
+describe("topic discovery", () => {
+  it("calls /rosapi/topics on open without disturbing the subscription set", () => {
+    const { source, socket } = makeSource();
+    source.start();
+    socket()._open();
+
+    const calls = socket().sent.map((s) => JSON.parse(s)).filter((m) => m.op === "call_service");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].service).toBe("/rosapi/topics");
+
+    // Fixed subscriptions are unaffected.
+    const subscribes = socket().sent.map((s) => JSON.parse(s)).filter((m) => m.op === "subscribe");
+    expect(subscribes).toHaveLength(LIVE_ROS_TOPICS.length);
+  });
+
+  it("emits a topic-list envelope pairing names with types from the service response", () => {
+    const { source, emitted, socket } = makeSource();
+    source.start();
+    socket()._open();
+
+    const call = socket().sent.map((s) => JSON.parse(s)).find((m) => m.op === "call_service");
+    socket()._emit("message", Buffer.from(JSON.stringify({
+      op: "service_response",
+      id: call.id,
+      values: { topics: ["/foo", "/bar"], types: ["std_msgs/Float64", "sensor_msgs/Image"] },
+      result: true,
+    })));
+
+    const list = emitted.find((e) => e.type === "topic-list");
+    expect(list).toBeDefined();
+    expect(list.source).toBe("vehicle-ros");
+    expect(list.topics).toEqual([
+      { topic: "/foo", type: "std_msgs/Float64" },
+      { topic: "/bar", type: "sensor_msgs/Image" },
+    ]);
+  });
+
+  it("ignores service responses with an unrelated id", () => {
+    const { source, emitted, socket } = makeSource();
+    source.start();
+    socket()._open();
+    const before = emitted.length;
+    socket()._emit("message", Buffer.from(JSON.stringify({
+      op: "service_response", id: "someone-elses-call", values: { topics: [] },
+    })));
+    expect(emitted.filter((e) => e.type === "topic-list")).toHaveLength(0);
+    expect(emitted.length).toBe(before);
+  });
+});
+
 // ─── Lifecycle ──────────────────────────────────────────────────────────────────
 
 describe("lifecycle", () => {

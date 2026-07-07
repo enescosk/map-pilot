@@ -44,6 +44,11 @@ let lidarStreamEnabled = true;
 let telemetrySnapshot = {};
 let latestTelemetryEnvelope;
 
+// The most recent topic-list (from /rosapi/topics). Emitted once when the ROS
+// bridge opens, so a dashboard that connects later would miss it — cache it and
+// replay to each freshly-connected WS client, like the telemetry snapshot.
+let latestTopicListEnvelope;
+
 // Deep-merge a per-frame telemetry patch into the cumulative snapshot. Plain
 // objects merge recursively; everything else (primitives, arrays) replaces.
 function mergeTelemetryDeep(target, patch) {
@@ -203,6 +208,9 @@ telemetryBus.on(BUS_EVENTS.ENVELOPE, (envelope) => {
       telemetry: telemetrySnapshot,
     };
   }
+  if (envelope?.type === "topic-list") {
+    latestTopicListEnvelope = envelope;
+  }
   broadcast(envelope);
 });
 
@@ -265,6 +273,12 @@ wss.on("connection", (ws) => {
   // 4. Latest topic-health snapshot — also lets the UI distinguish "no data yet"
   //    from "backend never started".
   ws.send(JSON.stringify(topicHealthService.getSnapshot()));
+
+  // 5. Cached topic-list (discovery) so a late-connecting dashboard still sees
+  //    what the vehicle advertises without waiting for a reconnect.
+  if (latestTopicListEnvelope) {
+    ws.send(JSON.stringify(latestTopicListEnvelope));
+  }
 
   ws.on("message", (message) => {
     try {

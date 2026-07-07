@@ -114,6 +114,14 @@ export type SourceChangedMessage = {
   source: string;
 };
 
+export type TopicInfo = { topic: string; type: string };
+
+export type TopicListMessage = {
+  type: "topic-list";
+  source?: string;
+  topics: TopicInfo[];
+};
+
 export type UnknownLiveMessage = {
   type?: string;
   [key: string]: unknown;
@@ -129,4 +137,5 @@ export type LiveMessage =
   | TelemetryMessage
   | TopicHealthMessage
   | BackendErrorMessage
-  | SourceChangedMessage;
+  | SourceChangedMessage
+  | TopicListMessage;

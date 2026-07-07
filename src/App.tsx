@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import ConnectionPanel from "./components/ConnectionPanel";
+import DiscoveredTopicsPanel from "./components/DiscoveredTopicsPanel";
 import DecisionLogPanel from "./components/DecisionLogPanel";
 import TopicHealthStrip from "./components/TopicHealthStrip";
 import { SparkChart } from "./components/SparkChart";
@@ -14,7 +15,7 @@ import { useDashboardTelemetry } from "./hooks/useDashboardTelemetry";
 import { useLiveTelemetry } from "./hooks/useLiveTelemetry";
 import { usePointCloudBuffer, type PendingPointCloudPacket } from "./hooks/usePointCloudBuffer";
 import { useTopicHealth } from "./hooks/useTopicHealth";
-import type { CameraFrameMessage, CameraStreamMessage, LatestFrame, LidarReading, LiveMessage, Point3D, TelemetryMessage } from "./types/liveMessages";
+import type { CameraFrameMessage, CameraStreamMessage, LatestFrame, LidarReading, LiveMessage, Point3D, TelemetryMessage, TopicInfo } from "./types/liveMessages";
 import {
   LIDAR_FILTER_VERSION,
   POINT_CLOUD_FLUSH_MS,
@@ -84,6 +85,8 @@ function App() {
   const [activePointCloudTopic, setActivePointCloudTopic] = useState<string>("");
   const [sourceConnected, setSourceConnected] = useState(false);
   const [latestFrame, setLatestFrameState] = useState<LatestFrame>();
+  // Faz 1: topics the vehicle advertises (from /rosapi/topics). Discovery only.
+  const [advertisedTopics, setAdvertisedTopics] = useState<TopicInfo[]>([]);
   // Throttle latestFrame to ≤10 fps. Topic panel doesn't need 100+ updates/sec.
   const latestFrameRef = useRef<LatestFrame | undefined>(undefined);
   const latestFrameTimerRef = useRef<number | undefined>(undefined);
@@ -204,6 +207,10 @@ function App() {
 
         if (packet.type === "topic-health") {
           handleTopicHealthMessage(packet);
+        }
+
+        if (packet.type === "topic-list" && Array.isArray(packet.topics)) {
+          setAdvertisedTopics(packet.topics);
         }
   }, [
     handleCameraFrame,
@@ -371,6 +378,7 @@ function App() {
             backendError={backendError}
           />
           <VehicleControlPanel sendMessage={sendMessage} />
+          <DiscoveredTopicsPanel topics={advertisedTopics} />
           <LatestFramePanel latest={latestFrame} />
         </aside>
 

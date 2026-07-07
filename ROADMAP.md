@@ -31,6 +31,9 @@ Bu dosya demo sonrası planı tutar. Her madde bittiğinde commit message'da
 - ✅ **Decision Log** — kompakt, boş-durum destekli
 - ✅ **Tek komut demo** — `npm run demo` / `npm run demo:down` (scripts/)
 - ✅ **CI** — GitHub Actions her push/PR'da: `npm ci` → tsc → test → build
+- ✅ **Topic keşfi (Faz 1)** — `/rosapi/topics` ile araç yayınladığı tüm topic'ler
+  keşfediliyor (gerçek araçta 211 topic), UI'da listeleniyor; liste önbelleğe
+  alınıp geç bağlanan dashboard'a da gönderiliyor. Sadece görüntüleme (abonelik yok).
 
 ### Kaldırılanlar (bilinçli sadeleştirme)
 - ❌ Bag playback (`bagPlaybackSource.js`) — canlı odaklı sisteme geçildi;
@@ -46,6 +49,19 @@ Bu dosya demo sonrası planı tutar. Her madde bittiğinde commit message'da
 ---
 
 ## 🎯 Öncelik Sırası
+
+### Aktif — Topic seçimi & layout
+
+- [ ] **Layout: kamera letterbox** — CameraViewer'da üst/alt siyah bantlar; stage
+  yüksekliği görüntü en-boyuna uymuyor. `object-fit`/aspect düzelt.  ← SIRADAKİ
+- [ ] **Layout: topic paneli dar** — 211 topic minik alanda scroll'lanıyor.
+  Genişlet + arama/filtre kutusu.
+- [ ] **Kontrol paneli ayrı sayfa** — Vehicle Control (steering/cruise/brake/mode)
+  ayrı "Kontrol" sekmesine. E-STOP her sayfada sabit kalır (güvenlik).
+- [ ] **Topic seçimi (Faz 2)** — kullanıcı listeden seçtiği topic'e dinamik abone
+  ol/kaldır. `subscribe`/`unsubscribe` mekanizması var (LiDAR için), genelleştir.
+- [ ] **Ham-JSON paneli (Faz 3, ops)** — tanınmayan tipteki topic'ler için.
+
 
 ### ✅ P0 — CI Kurulumu (BİTTİ, 2026-07-07)
 
