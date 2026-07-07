@@ -378,7 +378,6 @@ function App() {
             backendError={backendError}
           />
           <VehicleControlPanel sendMessage={sendMessage} />
-          <DiscoveredTopicsPanel topics={advertisedTopics} />
           <LatestFramePanel latest={latestFrame} />
         </aside>
 
@@ -404,21 +403,24 @@ function App() {
           <CameraViewer camera={camera} />
           {mode === "debug" && <DecisionLogPanel entries={decisionLogEntries} />}
           {mode !== "debug" && (
-            <div className="cockpit-charts">
-              <SparkChart
-                title="/imu/acceleration"
-                value={formatNumber(vectorMagnitude(telemetry.acceleration))}
-                unit="m/s2"
-                data={series.acceleration}
-                color="#34d399"
-              />
-              <SparkChart
-                title="speed"
-                value={formatNumber(telemetry.vehicle.speedKmh, 1)}
-                unit="km/h"
-                data={series.speed}
-                color="#fbbf24"
-              />
+            <div className="cockpit-bottom">
+              <div className="cockpit-charts">
+                <SparkChart
+                  title="/imu/acceleration"
+                  value={formatNumber(vectorMagnitude(telemetry.acceleration))}
+                  unit="m/s2"
+                  data={series.acceleration}
+                  color="#34d399"
+                />
+                <SparkChart
+                  title="speed"
+                  value={formatNumber(telemetry.vehicle.speedKmh, 1)}
+                  unit="km/h"
+                  data={series.speed}
+                  color="#fbbf24"
+                />
+              </div>
+              <DiscoveredTopicsPanel topics={advertisedTopics} />
             </div>
           )}
         </aside>

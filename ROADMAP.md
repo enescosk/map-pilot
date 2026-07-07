@@ -52,10 +52,11 @@ Bu dosya demo sonrası planı tutar. Her madde bittiğinde commit message'da
 
 ### Aktif — Topic seçimi & layout
 
-- [ ] **Layout: kamera letterbox** — CameraViewer'da üst/alt siyah bantlar; stage
-  yüksekliği görüntü en-boyuna uymuyor. `object-fit`/aspect düzelt.  ← SIRADAKİ
-- [ ] **Layout: topic paneli dar** — 211 topic minik alanda scroll'lanıyor.
-  Genişlet + arama/filtre kutusu.
+- [x] **Layout: kamera letterbox** — `.camera-stage` `aspect-ratio: 16/9` +
+  `object-fit: cover`; üst/alt siyah bantlar gitti.
+- [x] **Layout: topic paneli** — sol sütundan sağ sütuna taşındı; cockpit alt
+  şeridinde IMU+Speed (üst üste) yanında tam yükseklik topic listesi (211 topic).
+- [ ] **Topic paneli: arama/filtre** — 211 topic için arama kutusu.  ← SIRADAKİ
 - [ ] **Kontrol paneli ayrı sayfa** — Vehicle Control (steering/cruise/brake/mode)
   ayrı "Kontrol" sekmesine. E-STOP her sayfada sabit kalır (güvenlik).
 - [ ] **Topic seçimi (Faz 2)** — kullanıcı listeden seçtiği topic'e dinamik abone
