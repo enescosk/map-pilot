@@ -36,7 +36,8 @@ Bu dosya demo sonrası planı tutar. Her madde bittiğinde commit message'da
   alınıp geç bağlanan dashboard'a da gönderiliyor.
 - ✅ **Topic seçimi + ham veri (Faz 2)** — listeden topic seçince dinamik abone
   ol (`subscribe-topic`), ham mesaj JSON olarak "Ham Mesajlar" panelinde. Her mesaj
-  tipinde çalışır. Fixed base/lidar aboneliklerine dokunmaz.
+  tipinde çalışır. Fixed base/lidar aboneliklerine dokunmaz. Sessiz topic'lerde
+  (ör. /clock, /tf) 3 sn sonra "N sn'dir veri yok" uyarısı gösterilir.
 
 ### Kaldırılanlar (bilinçli sadeleştirme)
 - ❌ Bag playback (`bagPlaybackSource.js`) — canlı odaklı sisteme geçildi;

@@ -91,6 +91,8 @@ function App() {
   // Faz 2: topics the user picked for raw inspection + their latest message.
   const [selectedTopics, setSelectedTopics] = useState<Set<string>>(new Set());
   const [rawMessages, setRawMessages] = useState<Record<string, RawMessage>>({});
+  // When each topic was picked, so the raw panel can show "N sn'dir veri yok".
+  const selectedAtRef = useRef<Record<string, number>>({});
   // Throttle latestFrame to ≤10 fps. Topic panel doesn't need 100+ updates/sec.
   const latestFrameRef = useRef<LatestFrame | undefined>(undefined);
   const latestFrameTimerRef = useRef<number | undefined>(undefined);
@@ -346,6 +348,7 @@ function App() {
       const next = new Set(prev);
       if (next.has(topic)) {
         next.delete(topic);
+        delete selectedAtRef.current[topic];
         sendMessage({ type: "unsubscribe-topic", topic });
         setRawMessages((msgs) => {
           const { [topic]: _drop, ...rest } = msgs;
@@ -353,6 +356,7 @@ function App() {
         });
       } else {
         next.add(topic);
+        selectedAtRef.current[topic] = Date.now();
         sendMessage({ type: "subscribe-topic", topic });
       }
       return next;
@@ -454,7 +458,7 @@ function App() {
                 selected={selectedTopics}
                 onToggle={toggleTopic}
               />
-              <RawMessagePanel selected={selectedTopics} messages={rawMessages} />
+              <RawMessagePanel selected={selectedTopics} messages={rawMessages} selectedAt={selectedAtRef.current} />
             </div>
           )}
         </aside>

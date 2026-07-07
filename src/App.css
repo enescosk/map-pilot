@@ -1945,3 +1945,18 @@ button:hover {
   max-height: 180px;
   overflow-y: auto;
 }
+
+.raw-messages__waiting,
+.raw-messages__silent {
+  margin: 0;
+  padding: 8px;
+  font-size: 0.7rem;
+}
+
+.raw-messages__waiting {
+  color: var(--text-dim, #8a94a6);
+}
+
+.raw-messages__silent {
+  color: var(--warning, #f0b429);
+}
