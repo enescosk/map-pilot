@@ -63,7 +63,10 @@ Bu dosya demo sonrası planı tutar. Her madde bittiğinde commit message'da
 - [x] **Topic seçimi + ham veri (Faz 2)** — kullanıcı listeden topic'e tıklayınca
   backend `subscribe-topic` ile dinamik abone oluyor; gelen mesaj "Ham Mesajlar"
   panelinde JSON olarak gösteriliyor. Gerçek araçla doğrulandı (/imu/data).
-- [ ] **Topic paneli: arama/filtre** — 211 topic için arama kutusu.  ← SIRADAKİ
+- [x] **Topic paneli: arama/filtre** — topic adı/tipine göre arama kutusu;
+  başlıkta "N/toplam" sayacı, temizle butonu, eşleşme yoksa boş-durum.
+- [ ] **Akıllı görselleştirme** — seçilen topic tipine göre görsel: sayı→grafik,
+  görüntü→resim, konum→harita. Ham JSON "detay" olur. (Asıl yıldız özellik; büyük iş.)
 - [ ] **Kontrol paneli ayrı sayfa** — Vehicle Control (steering/cruise/brake/mode)
   ayrı "Kontrol" sekmesine. E-STOP her sayfada sabit kalır (güvenlik).
 

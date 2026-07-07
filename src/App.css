@@ -1838,6 +1838,47 @@ button:hover {
   word-break: break-all;
 }
 
+/* Faz 2 — topic search box */
+.topic-search {
+  position: relative;
+  padding: 6px 8px 4px;
+  flex-shrink: 0;
+}
+
+.topic-search__input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 24px 5px 8px;
+  font-size: 0.72rem;
+  color: var(--text, #e6edf5);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+  border-radius: 6px;
+  outline: none;
+}
+
+.topic-search__input:focus {
+  border-color: var(--accent, #38bdf8);
+}
+
+.topic-search__clear {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  color: var(--text-dim, #8a94a6);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.topic-search__clear:hover {
+  color: var(--text, #e6edf5);
+}
+
 /* Faz 1 — discovered topics list */
 .discovered-topics {
   list-style: none;
