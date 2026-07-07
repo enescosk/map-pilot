@@ -5,7 +5,7 @@ Bu dosya demo sonrası planı tutar. Her madde bittiğinde commit message'da
 
 ---
 
-## 📍 Şu Anki Durum (2026-07-07, commit e9285c8)
+## 📍 Şu Anki Durum (2026-07-07, commit 9302cbb)
 
 **Sağlık göstergeleri:** 346/346 test geçiyor · `tsc --noEmit` temiz · `vite build` çalışıyor.
 
@@ -30,6 +30,7 @@ Bu dosya demo sonrası planı tutar. Her madde bittiğinde commit message'da
 - ✅ **Topic sağlık servisi** — per-topic lastSeen / fresh-stale takibi (backend)
 - ✅ **Decision Log** — kompakt, boş-durum destekli
 - ✅ **Tek komut demo** — `npm run demo` / `npm run demo:down` (scripts/)
+- ✅ **CI** — GitHub Actions her push/PR'da: `npm ci` → tsc → test → build
 
 ### Kaldırılanlar (bilinçli sadeleştirme)
 - ❌ Bag playback (`bagPlaybackSource.js`) — canlı odaklı sisteme geçildi;
@@ -46,17 +47,13 @@ Bu dosya demo sonrası planı tutar. Her madde bittiğinde commit message'da
 
 ## 🎯 Öncelik Sırası
 
-### P0 — CI Kurulumu (yarım gün, düşük risk)
+### ✅ P0 — CI Kurulumu (BİTTİ, 2026-07-07)
 
-Sistem 346 teste sahip ama **hiçbir otomasyon çalıştırmıyor**. En yüksek
-değer/risk oranı burada.
+`.github/workflows/ci.yml` — her push/PR'da `npm ci` → `tsc --noEmit` →
+`vitest run` → `vite build`, Node 22. Üç kapı da yerelde yeşil doğrulandı.
+Kalan (opsiyonel): README'ye yeşil badge, Node sürüm matrix'i.
 
-- [ ] `.github/workflows/ci.yml` — her push/PR'da:
-  `npm ci` → `npm test` → `npx tsc --noEmit` → `npx vite build`
-- [ ] Node sürümü matrix'i (repoda kullanılan sürüm)
-- [ ] Yeşil badge README'ye
-
-### P1 — Kayıt & Replay (2-3 gün)
+### P1 — Kayıt & Replay (2-3 gün)  ← SIRADAKİ
 
 Canlı oturumu diske yazıp sonradan oynatma. Altyapı hazır: her envelope zaten
 `telemetryBus` üzerinden tek noktadan akıyor.
