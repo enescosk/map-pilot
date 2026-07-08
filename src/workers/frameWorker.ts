@@ -58,6 +58,39 @@ function appendToTopicBuffer(topic: string, pts: Point3D[]) {
   topicFill.set(topic, fill);
 }
 
+// Ingest + filter directly off the incoming xyzi Float32Array — no per-point
+// {x,y,z,intensity} objects. This is the hot path for the RSLidar firehose
+// (up to ~136k pts/frame @10Hz): the old code materialized `header.n` JS
+// objects just to filter them and throw them away one line later.
+function appendFilteredToTopicBuffer(topic: string, xyzi: Float32Array, count: number) {
+  const state = getTopicBuffer(topic);
+  const buf = state.buf;
+  let pos = state.pos;
+  let fill = state.fill;
+  const r2 = VIEW_RADIUS * VIEW_RADIUS;
+  const ego2 = EGO_CLEARANCE * EGO_CLEARANCE;
+  for (let i = 0; i < count; i++) {
+    const o = i * FLOATS_PER_POINT;
+    const x = xyzi[o];
+    const y = xyzi[o + 1];
+    const z = xyzi[o + 2];
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue;
+    if (z < MIN_HEIGHT || z > MAX_HEIGHT) continue;
+    const d2 = x * x + y * y;
+    if (d2 < ego2 || d2 > r2) continue;
+    const range = Math.sqrt(d2 + z * z);
+    if (range < MIN_RANGE || range > VIEW_RADIUS) continue;
+    buf[pos] = x;
+    buf[pos + 1] = y;
+    buf[pos + 2] = z;
+    buf[pos + 3] = xyzi[o + 3];
+    pos = (pos + FLOATS_PER_POINT) % BUFFER_FLOATS;
+    fill = Math.min(fill + 1, BUFFER_POINTS);
+  }
+  topicWritePos.set(topic, pos);
+  topicFill.set(topic, fill);
+}
+
 function readTopicBuffer(topic: string): Point3D[] {
   const { buf, pos, fill } = getTopicBuffer(topic);
   const pts: Point3D[] = new Array(fill);
@@ -120,6 +153,62 @@ function selectRenderable(pts: Point3D[]): Point3D[] {
   return result;
 }
 
+// Same voxel-downsample algorithm as `downsample`/`selectRenderable`, but
+// walks the circular Float32Array buffer directly and keeps a buffer
+// *offset* per voxel instead of a materialized {x,y,z,intensity} object.
+// The old `readTopicBuffer` turned the entire history (up to 32,000 points)
+// into fresh JS objects on *every incoming frame*, just so `downsample`
+// could throw most of them away — that's the main GC-churn source behind
+// the LiDAR page lag. Objects are now only ever created for the final,
+// already-capped renderable set.
+function downsampleBufferIndices(buf: Float32Array, startPos: number, fill: number, voxel: number): number[] {
+  const inv = 1 / voxel;
+  const grid = new Map<number, number>(); // voxel key -> float offset into buf
+  for (let i = 0; i < fill; i++) {
+    const idx = (startPos + i * FLOATS_PER_POINT) % BUFFER_FLOATS;
+    const kx = Math.floor(buf[idx] * inv);
+    const ky = Math.floor(buf[idx + 1] * inv);
+    const kz = Math.floor(buf[idx + 2] * inv);
+    const key = ((kx + 4096) * 8192 + (ky + 4096)) * 8192 + (kz + 4096);
+    if (!grid.has(key)) grid.set(key, idx);
+  }
+  return [...grid.values()];
+}
+
+function selectRenderableIndices(buf: Float32Array, startPos: number, fill: number): number[] {
+  let indices: number[];
+  if (fill > MAX_RENDERED * 1.5) {
+    indices = downsampleBufferIndices(buf, startPos, fill, RENDER_VOXEL);
+  } else {
+    indices = new Array(fill);
+    for (let i = 0; i < fill; i++) indices[i] = (startPos + i * FLOATS_PER_POINT) % BUFFER_FLOATS;
+  }
+  let voxel = RENDER_VOXEL;
+  while (indices.length > MAX_RENDERED && voxel < 1.5) {
+    voxel *= 1.4;
+    indices = downsampleBufferIndices(buf, startPos, fill, voxel);
+  }
+  if (indices.length > MAX_RENDERED) {
+    const step = Math.ceil(indices.length / MAX_RENDERED);
+    const out: number[] = [];
+    for (let i = 0; i < indices.length; i += step) out.push(indices[i]);
+    indices = out;
+  }
+  return indices;
+}
+
+function materializeRenderable(topic: string): Point3D[] {
+  const { buf, pos, fill } = getTopicBuffer(topic);
+  const startPos = fill < BUFFER_POINTS ? 0 : pos;
+  const indices = selectRenderableIndices(buf, startPos, fill);
+  const out: Point3D[] = new Array(indices.length);
+  for (let i = 0; i < indices.length; i++) {
+    const idx = indices[i];
+    out[i] = { x: buf[idx], y: buf[idx + 1], z: buf[idx + 2], intensity: buf[idx + 3] };
+  }
+  return out;
+}
+
 function buildScanPoints(scan: {
   angle_min?: number; angle_max?: number; angle_increment?: number;
   range_min?: number; range_max?: number; ranges?: number[]; intensities?: number[];
@@ -175,16 +264,8 @@ self.onmessage = (ev: MessageEvent) => {
         xyzi = new Float32Array(copy);
       }
 
-      const rawPts: Point3D[] = new Array(header.n);
-      for (let i = 0; i < header.n; i++) {
-        const o = i * 4;
-        rawPts[i] = { x: xyzi[o], y: xyzi[o + 1], z: xyzi[o + 2], intensity: xyzi[o + 3] };
-      }
-
-      const filtered = filterPoints(rawPts);
-      appendToTopicBuffer(header.topic, filtered);
-      const history = readTopicBuffer(header.topic);
-      const renderable = selectRenderable(history);
+      appendFilteredToTopicBuffer(header.topic, xyzi, header.n);
+      const renderable = materializeRenderable(header.topic);
       self.postMessage({
         type: "cloud-ready",
         topic: header.topic,
