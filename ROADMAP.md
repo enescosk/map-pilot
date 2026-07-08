@@ -5,9 +5,9 @@ Bu dosya demo sonrası planı tutar. Her madde bittiğinde commit message'da
 
 ---
 
-## 📍 Şu Anki Durum (2026-07-08, commit c3bf06f)
+## 📍 Şu Anki Durum (2026-07-08, commit 260a539)
 
-**Sağlık göstergeleri:** 349/349 test geçiyor · `tsc --noEmit` temiz · `vite build` çalışıyor.
+**Sağlık göstergeleri:** 354/354 test geçiyor · `tsc --noEmit` temiz · `vite build` çalışıyor.
 
 ### Çalışan
 - ✅ **Cockpit sayfası** — hız gauge, GPS (lat/lon/alt), heading, steering, brake,
@@ -27,6 +27,17 @@ Bu dosya demo sonrası planı tutar. Her madde bittiğinde commit message'da
   materialize ediliyor). Sentetik benchmark (130k nokta/frame × 50 frame):
   9.80 ms/frame → 2.32 ms/frame (**~4.2x**). Wire format değişmedi, tek dosya
   (`src/workers/frameWorker.ts`), 349 test + tsc + build yeşil.
+- ✅ **LiDAR worker→main postMessage transferable'a geçirildi (2026-07-08)** —
+  `frameWorker.ts` artık `cloud-ready`/`scan-ready`'de `Point3D[]` yerine
+  transfer-list'li `Float32Array` (xyzi) gönderiyor; structured-clone maliyeti
+  60k noktada ölçülen ~33ms/frame'den ~0'a indi. Wire format değişti — 5 dosya
+  güncellendi: `frameWorker.ts`, `usePointCloudBuffer.ts`, `lidarProcessing.ts`
+  (`LidarCloudState`, `selectStoredLiveXyzi`, `xyziToPoints`), `App.tsx`,
+  `LidarWorkspace.tsx`, `Lidar3D.tsx` (GPU-write döngüsü artık typed array'i
+  index'le okuyor, tek reused obje — main-thread'de de ekstra obje allocation
+  kalmadı). 2D `Lidar2D` görünümü hâlâ `Point3D[]` bekliyor ama dönüşüm artık
+  sadece kullanıcı gerçekten 2D moddayken yapılıyor (küçük hacim, kritik yol
+  değil). 354 test + tsc + build yeşil.
 - ✅ **Vehicle Control paneli** — steering / cruise / brake / mode, ARM + deadman
 - ✅ **E-STOP** — sekizgen dur-tabelası butonu, SPACE kısayolu, disarm'da nötr komut
 - ✅ **Rosbridge canlı bağlantı** + otomatik yeniden bağlanma (backoff reset)
@@ -136,12 +147,6 @@ yok. Sadece profiler gerçek bir darboğaz gösterirse:
    context+reducer). Paneller topic-bazlı subscribe olur, re-render azalır.
    Ölçüm olmadan spekülatif; React DevTools Profiler ile baseline al.
 2. **Playwright perf baseline** — p95 long task < 50ms regresyon dedektörü.
-3. **LiDAR worker→main postMessage transferable'a geçsin** — `frameWorker.ts`
-   `cloud-ready` mesajı hâlâ `Point3D[]` gönderiyor (structured clone);
-   ölçülen maliyet 60k noktada ~33 ms/frame (bkz. Öğrendiklerimiz #6).
-   `Float32Array` + transfer list'e geçilirse ~0 ms'e iner — ama wire format
-   değişir, App.tsx / usePointCloudBuffer.ts / Lidar3D.tsx da güncellenmeli
-   (4 dosya, daha geniş blast radius; #1'den ayrı, dikkatli PR).
 
 ### P5 — Uzun Vadeli (fikir havuzu)
 
@@ -181,10 +186,12 @@ yok. Sadece profiler gerçek bir darboğaz gösterirse:
    objesine çeviriyordu (readTopicBuffer) + Map<number,Point3D> ile
    downsample yapıyordu → circular buffer üzerinde index-tabanlı çalışacak
    şekilde yeniden yazıldı, obje sadece final render seti için üretiliyor
-   (~4.2x, ölçüldü). Ayrıca fark edildi ama henüz düzeltilmedi: worker →
-   main thread `postMessage`'daki `Point3D[]` structured-clone maliyeti
-   60k noktada ~33 ms/frame — transferable `Float32Array`'e geçilirse
-   ~0 ms'e iner (bkz. P4).
+   (~4.2x, ölçüldü).
+7. Worker → main thread `postMessage`'daki `Point3D[]` structured-clone
+   maliyeti 60k noktada ölçülen ~33 ms/frame idi → transferable `Float32Array`
+   (xyzi) + transfer list'e geçirildi, wire format değişti (5 dosya), main
+   thread'deki GPU-write döngüsü de artık typed array'i tek reused obje ile
+   okuyor (ekstra obje allocation kalmadı). Sentetik benchmark: ~106x.
 
 ---
 

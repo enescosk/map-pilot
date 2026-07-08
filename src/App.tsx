@@ -16,11 +16,11 @@ import { useDashboardTelemetry } from "./hooks/useDashboardTelemetry";
 import { useLiveTelemetry } from "./hooks/useLiveTelemetry";
 import { usePointCloudBuffer, type PendingPointCloudPacket } from "./hooks/usePointCloudBuffer";
 import { useTopicHealth } from "./hooks/useTopicHealth";
-import type { CameraFrameMessage, CameraStreamMessage, LatestFrame, LidarReading, LiveMessage, Point3D, RawMessage, TelemetryMessage, TopicInfo } from "./types/liveMessages";
+import type { CameraFrameMessage, CameraStreamMessage, LatestFrame, LidarReading, LiveMessage, RawMessage, TelemetryMessage, TopicInfo } from "./types/liveMessages";
 import {
   LIDAR_FILTER_VERSION,
   POINT_CLOUD_FLUSH_MS,
-  selectStoredLivePoints,
+  selectStoredLiveXyzi,
   type LidarCloudState,
 } from "./utils/lidarProcessing";
 import { sourceHealthLabel, sourceModeInfo } from "./utils/dashboardHelpers";
@@ -129,10 +129,11 @@ function App() {
       for (const packet of pending) {
         // Worker already filtered + downsampled. denoisePointCloud was an
         // O(N×27) main-thread pass we no longer need.
-        const livePoints = selectStoredLivePoints(packet.points);
-        const previous = next[packet.topic] || { points: [], frameId: "", resolvedFrame: "" };
+        const live = selectStoredLiveXyzi(packet.pointsXyzi, packet.pointCount);
+        const previous = next[packet.topic] || { pointsXyzi: new Float32Array(0), pointsCount: 0, frameId: "", resolvedFrame: "" };
         next[packet.topic] = {
-          points: livePoints,
+          pointsXyzi: live.xyzi,
+          pointsCount: live.count,
           frameId: packet.frameId || previous.frameId || "",
           resolvedFrame: packet.resolvedFrame || previous.resolvedFrame || "",
           lastTime: packet.time || previous.lastTime,
@@ -236,12 +237,12 @@ function App() {
   const registerCloudTopic = useCallback((topic: string, n: number) => {
     setPointClouds((prev) => {
       const existing = prev[topic];
-      if (existing && existing.pointCount === n && existing.points.length === 0) return prev;
+      if (existing && existing.pointCount === n && existing.pointsCount === 0) return prev;
       return {
         ...prev,
         [topic]: existing
           ? { ...existing, pointCount: n }
-          : { points: [], frameId: "", resolvedFrame: "", pointCount: n },
+          : { pointsXyzi: new Float32Array(0), pointsCount: 0, frameId: "", resolvedFrame: "", pointCount: n },
       };
     });
   }, []);
@@ -255,14 +256,15 @@ function App() {
     const lidarPageOpen = modeRef.current === "debug";
 
     if (type === "scan-ready") {
-      const { topic, renderable, readingsLength, time, frameId } = ev.data as {
-        topic: string; renderable: Point3D[]; readingsLength: number; time: string; frameId: string;
+      const { topic, renderableXyzi, count, readingsLength, time, frameId } = ev.data as {
+        topic: string; renderableXyzi: Float32Array; count: number; readingsLength: number; time: string; frameId: string;
       };
       if (lidarPageOpen) {
         setPointClouds((prev) => ({
           ...prev,
           [topic]: {
-            points: renderable,
+            pointsXyzi: renderableXyzi,
+            pointsCount: count,
             frameId: frameId || "laser",
           },
         }));
@@ -274,16 +276,16 @@ function App() {
     }
 
     if (type === "cloud-ready") {
-      const { topic, renderable, frameCount, time, frameId, resolvedFrame } = ev.data as {
-        topic: string; renderable: Point3D[]; frameCount: number; time: string; frameId: string; resolvedFrame: string;
+      const { topic, renderableXyzi, count, frameCount, time, frameId, resolvedFrame } = ev.data as {
+        topic: string; renderableXyzi: Float32Array; count: number; frameCount: number; time: string; frameId: string; resolvedFrame: string;
       };
       if (lidarPageOpen) {
-        enqueuePointCloud({ topic, points: renderable, frameCount, frameId, resolvedFrame, time });
+        enqueuePointCloud({ topic, pointsXyzi: renderableXyzi, pointCount: count, frameCount, frameId, resolvedFrame, time });
       } else {
-        registerCloudTopic(topic, frameCount ?? renderable.length);
+        registerCloudTopic(topic, frameCount ?? count);
       }
       setActivePointCloudTopic((prev) => prev || topic);
-      setLatestFrame({ topic, time, messageType: "PointCloud2", preview: `${renderable.length} sampled 3D points` });
+      setLatestFrame({ topic, time, messageType: "PointCloud2", preview: `${count} sampled 3D points` });
     }
 
     if (type === "cloud-skipped") {

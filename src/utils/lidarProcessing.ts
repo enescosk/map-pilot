@@ -2,7 +2,9 @@ import type { LidarReading, Point3D } from "../types/liveMessages";
 import type { TelemetryState, Vector3 } from "../types/telemetry";
 
 export type LidarCloudState = {
-  points: Point3D[];
+  // xyzi-interleaved Float32Array (see frameWorker.ts materializeRenderableXyzi)
+  pointsXyzi: Float32Array;
+  pointsCount: number;
   frameId: string;
   resolvedFrame?: string;
   lastTime?: string;
@@ -330,17 +332,39 @@ export function selectRenderablePoints(points: Point3D[]) {
   return result;
 }
 
-export function selectStoredLivePoints(points: Point3D[]) {
-  if (points.length <= MAX_STORED_LIVE_POINTS) {
-    return points;
+// Lidar2D's canvas draw is a small/legacy path, not the perf-critical GPU one —
+// callers should only pay this conversion when 2D mode is actually visible.
+export function xyziToPoints(xyzi: Float32Array, count: number): Point3D[] {
+  const out: Point3D[] = new Array(count);
+  for (let i = 0; i < count; i++) {
+    const o = i * 4;
+    out[i] = { x: xyzi[o], y: xyzi[o + 1], z: xyzi[o + 2], intensity: xyzi[o + 3] };
+  }
+  return out;
+}
+
+// The worker already caps renderable clouds at MAX_RENDERED_POINT_CLOUD_POINTS
+// (60,000, <= MAX_STORED_LIVE_POINTS), so this is normally a no-op passthrough —
+// kept as a safety net against a stale/misconfigured worker sending more.
+export function selectStoredLiveXyzi(xyzi: Float32Array, count: number): { xyzi: Float32Array; count: number } {
+  if (count <= MAX_STORED_LIVE_POINTS) {
+    return { xyzi, count };
   }
 
-  const step = Math.ceil(points.length / MAX_STORED_LIVE_POINTS);
-  const selected = [];
-  for (let index = 0; index < points.length; index += step) {
-    selected.push(points[index]);
+  const step = Math.ceil(count / MAX_STORED_LIVE_POINTS);
+  const selectedCount = Math.ceil(count / step);
+  const out = new Float32Array(selectedCount * 4);
+  let written = 0;
+  for (let index = 0; index < count; index += step) {
+    const srcOffset = index * 4;
+    const dstOffset = written * 4;
+    out[dstOffset] = xyzi[srcOffset];
+    out[dstOffset + 1] = xyzi[srcOffset + 1];
+    out[dstOffset + 2] = xyzi[srcOffset + 2];
+    out[dstOffset + 3] = xyzi[srcOffset + 3];
+    written += 1;
   }
-  return selected;
+  return { xyzi: out, count: written };
 }
 
 function isPointCloudTopic(topic: string) {
@@ -373,7 +397,7 @@ function pointCloudTopicPriority(topic: string) {
 // ACCUMULATED history, so a near-empty topic that happened to be active for a
 // while looks falsely dense; only fall back to it when no frame count is known.
 function cloudPointCount(state: LidarCloudState) {
-  return state.pointCount ?? (state.points.length > 0 ? state.points.length : 0);
+  return state.pointCount ?? state.pointsCount ?? 0;
 }
 
 // Topics that emit only a handful of points per frame (e.g. the vehicle's

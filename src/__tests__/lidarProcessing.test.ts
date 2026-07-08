@@ -4,7 +4,7 @@ import {
   scanReadingsToPoints,
   appendLidarHistory,
   selectRenderablePoints,
-  selectStoredLivePoints,
+  selectStoredLiveXyzi,
   denoisePointCloud,
   chooseBestPointCloudTopic,
   LIDAR_FILTER_VERSION,
@@ -13,6 +13,17 @@ import type { Point3D, LidarReading } from "../types/liveMessages";
 
 function pt(x: number, y: number, z = 0): Point3D {
   return { x, y, z };
+}
+
+function toXyzi(points: Point3D[]): Float32Array {
+  const out = new Float32Array(points.length * 4);
+  points.forEach((p, i) => {
+    out[i * 4] = p.x;
+    out[i * 4 + 1] = p.y;
+    out[i * 4 + 2] = p.z;
+    out[i * 4 + 3] = p.intensity ?? 0;
+  });
+  return out;
 }
 
 // ─── buildPointCloudFromScan ──────────────────────────────────────────────────
@@ -98,17 +109,19 @@ describe("appendLidarHistory", () => {
 
 // ─── selectStoredLivePoints ───────────────────────────────────────────────────
 
-describe("selectStoredLivePoints", () => {
+describe("selectStoredLiveXyzi", () => {
   it("returns input unchanged when under limit", () => {
-    const pts = [pt(1, 0), pt(2, 0)];
-    expect(selectStoredLivePoints(pts)).toBe(pts);
+    const xyzi = toXyzi([pt(1, 0), pt(2, 0)]);
+    const result = selectStoredLiveXyzi(xyzi, 2);
+    expect(result.xyzi).toBe(xyzi);
+    expect(result.count).toBe(2);
   });
 
   it("downsamples when over the stored-live cap", () => {
-    const pts = Array.from({ length: 150000 }, (_, i) => pt(i, 0));
-    const result = selectStoredLivePoints(pts);
-    expect(result.length).toBeLessThanOrEqual(80000);
-    expect(result.length).toBeGreaterThan(0);
+    const xyzi = toXyzi(Array.from({ length: 150000 }, (_, i) => pt(i, 0)));
+    const result = selectStoredLiveXyzi(xyzi, 150000);
+    expect(result.count).toBeLessThanOrEqual(80000);
+    expect(result.count).toBeGreaterThan(0);
   });
 });
 
@@ -167,16 +180,16 @@ describe("chooseBestPointCloudTopic", () => {
 
   it("prefers rslidar over generic cloud", () => {
     const clouds = {
-      "/cloud": { points: Array(100).fill(pt(1, 0)), frameId: "" },
-      "/m1/rslidar_points": { points: Array(50).fill(pt(1, 0)), frameId: "" },
+      "/cloud": { pointsXyzi: toXyzi(Array(100).fill(pt(1, 0))), pointsCount: 100, frameId: "" },
+      "/m1/rslidar_points": { pointsXyzi: toXyzi(Array(50).fill(pt(1, 0))), pointsCount: 50, frameId: "" },
     };
     expect(chooseBestPointCloudTopic(clouds)).toBe("/m1/rslidar_points");
   });
 
   it("ignores topics with no points", () => {
     const clouds = {
-      "/cloud": { points: [], frameId: "" },
-      "/scan": { points: [pt(1, 0)], frameId: "" },
+      "/cloud": { pointsXyzi: toXyzi([]), pointsCount: 0, frameId: "" },
+      "/scan": { pointsXyzi: toXyzi([pt(1, 0)]), pointsCount: 1, frameId: "" },
     };
     expect(chooseBestPointCloudTopic(clouds)).toBe("");
   });

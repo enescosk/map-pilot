@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef } from "react";
-import type { LidarReading, Point3D } from "../types/liveMessages";
+import type { LidarReading } from "../types/liveMessages";
 
 export type PendingPointCloudPacket = {
   topic: string;
-  points: Point3D[];
+  // xyzi-interleaved Float32Array (see frameWorker.ts materializeRenderableXyzi)
+  pointsXyzi: Float32Array;
+  pointCount: number;
   readings?: LidarReading[];
   frameCount?: number;
   frameId?: string;

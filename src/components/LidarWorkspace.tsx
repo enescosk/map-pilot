@@ -1,11 +1,13 @@
 import { memo, useEffect, useMemo, useState } from "react";
-import type { LidarReading } from "../types/liveMessages";
+import type { LidarReading, Point3D } from "../types/liveMessages";
 import type { TelemetryState } from "../types/telemetry";
-import { chooseBestPointCloudTopic, type LidarCloudState } from "../utils/lidarProcessing";
+import { chooseBestPointCloudTopic, xyziToPoints, type LidarCloudState } from "../utils/lidarProcessing";
 import { Lidar2D } from "./Lidar2D";
 import { Lidar3D, type LidarColorMode } from "./Lidar3D";
 
 type LidarMode = "2d" | "3d";
+const EMPTY_XYZI = new Float32Array(0);
+const EMPTY_POINTS: Point3D[] = [];
 
 function LidarWorkspaceImpl({
   readings,
@@ -41,9 +43,14 @@ function LidarWorkspaceImpl({
       setActiveTopic(bestTopic);
     }
   }, [activeTopic, bestTopic, setActiveTopic, lidarStartMs]);
-  const activeData = pointClouds[activeTopic] || { points: [], frameId: "", resolvedFrame: "" };
-  const points = activeData.points;
-  const hasLidarData = readings.length > 0 || points.length > 0;
+  const activeData = pointClouds[activeTopic] || { pointsXyzi: EMPTY_XYZI, pointsCount: 0, frameId: "", resolvedFrame: "" };
+  const hasLidarData = readings.length > 0 || activeData.pointsCount > 0;
+  // Lidar2D still consumes a Point3D[]; only pay that conversion when the 2D
+  // canvas view is actually visible (the GPU/3D path reads pointsXyzi directly).
+  const legacyPoints = useMemo(
+    () => (mode === "2d" ? xyziToPoints(activeData.pointsXyzi, activeData.pointsCount) : EMPTY_POINTS),
+    [mode, activeData.pointsXyzi, activeData.pointsCount],
+  );
 
   return (
     <section className="workspace-panel lidar-workspace">
@@ -104,7 +111,8 @@ function LidarWorkspaceImpl({
       {hasLidarData ? mode === "3d" ? (
         <Lidar3D
           readings={readings}
-          points={points}
+          pointsXyzi={activeData.pointsXyzi}
+          pointCount={activeData.pointsCount}
           activeTopic={activeTopic}
           frameId={activeData.frameId}
           resolvedFrame={activeData.resolvedFrame}
@@ -114,12 +122,12 @@ function LidarWorkspaceImpl({
           autoFit={autoFit}
           showDebug={showDebug}
         />
-      ) : <Lidar2D readings={readings} points={points} /> : (
+      ) : <Lidar2D readings={readings} points={legacyPoints} /> : (
         <div className="empty-state lidar-empty-state">{emptyMessage}</div>
       )}
       <div className="metric-strip">
         <span>{readings.length} scan points</span>
-        <span>{activeData.points.length.toLocaleString()} live pts</span>
+        <span>{activeData.pointsCount.toLocaleString()} live pts</span>
         <span>{mode.toUpperCase()}</span>
       </div>
     </section>

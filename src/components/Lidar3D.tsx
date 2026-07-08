@@ -34,6 +34,7 @@ const HEIGHT_COLOR_MIN = -2;
 const HEIGHT_COLOR_MAX = 4;
 // Fixed GPU buffer pool size — the worker caps renderable clouds below this.
 const MAX_RENDER_POINTS = 65_536;
+const EMPTY_POINTS: Point3D[] = [];
 
 function emptyDebugStats(): LidarDebugStats {
   return {
@@ -49,7 +50,8 @@ function emptyDebugStats(): LidarDebugStats {
 
 function Lidar3D({
   readings,
-  points,
+  pointsXyzi,
+  pointCount,
   activeTopic,
   frameId,
   resolvedFrame,
@@ -60,7 +62,13 @@ function Lidar3D({
   showDebug,
 }: {
   readings: LidarReading[];
-  points: Point3D[];
+  // xyzi-interleaved (see frameWorker.ts materializeRenderableXyzi) — read
+  // directly by index in the GPU-write loop below, never materialized into
+  // {x,y,z,intensity} objects (that was the postMessage structured-clone
+  // bottleneck: ~33ms/frame for a 60k-point Point3D[] vs near-zero for a
+  // transferred Float32Array).
+  pointsXyzi: Float32Array;
+  pointCount: number;
   activeTopic?: string;
   frameId?: string;
   resolvedFrame?: string;
@@ -79,8 +87,10 @@ function Lidar3D({
   const controlsRef = useRef<OrbitControls | null>(null);
   const pointTextureRef = useRef<THREE.Texture | undefined>(undefined);
   const renderRequestRef = useRef<(() => void) | null>(null);
-  const rawDisplayPoints = useMemo(() => points.length > 0 ? points : scanReadingsToPoints(readings), [points, readings]);
-  const hasPoints = points.length > 0;
+  const hasPoints = pointCount > 0;
+  // 2D LaserScan fallback only kicks in when there's no 3D cloud at all — small
+  // volume (~hundreds of points), fine to materialize as objects.
+  const fallbackPoints = useMemo(() => hasPoints ? EMPTY_POINTS : scanReadingsToPoints(readings), [hasPoints, readings]);
 
   // Pre-allocated typed-array pool — same buffers are reused across frames so we
   // avoid GC pressure (was ~21 MB/s of churn at 30 Hz with 60k points). Only
@@ -560,6 +570,10 @@ function Lidar3D({
     const transform = getDisplayFrameTransform(frameId, resolvedFrame, vehiclePose);
     const color = new THREE.Color();
     const tmp = { x: 0, y: 0, z: 0 };
+    // Reused across every point in the loop — the old code iterated an already
+    // materialized Point3D[] (one object per point); reading straight out of
+    // the typed array here means zero object allocation in this loop too.
+    const point: Point3D = { x: 0, y: 0, z: 0, intensity: 0 };
     const firstPoints: Point3D[] = [];
     let valid = 0;
     let written = 0;
@@ -570,11 +584,25 @@ function Lidar3D({
     let threeMinY = Infinity, threeMaxY = -Infinity;
     let threeMinZ = Infinity, threeMaxZ = -Infinity;
 
-    for (const point of rawDisplayPoints) {
+    const n = hasPoints ? pointCount : fallbackPoints.length;
+    for (let i = 0; i < n; i++) {
+      if (hasPoints) {
+        const o = i * 4;
+        point.x = pointsXyzi[o];
+        point.y = pointsXyzi[o + 1];
+        point.z = pointsXyzi[o + 2];
+        point.intensity = pointsXyzi[o + 3];
+      } else {
+        const src = fallbackPoints[i];
+        point.x = src.x;
+        point.y = src.y;
+        point.z = src.z;
+        point.intensity = src.intensity ?? 0;
+      }
       transformDisplayPointInto(tmp, point, transform);
       if (!isMeaningfulThreeCoords(tmp.x, tmp.y, tmp.z)) continue;
       valid += 1;
-      if (firstPoints.length < 5) firstPoints.push(point);
+      if (firstPoints.length < 5) firstPoints.push({ x: point.x, y: point.y, z: point.z, intensity: point.intensity });
       if (point.x < minX) minX = point.x; if (point.x > maxX) maxX = point.x;
       if (point.y < minY) minY = point.y; if (point.y > maxY) maxY = point.y;
       if (point.z < minZ) minZ = point.z; if (point.z > maxZ) maxZ = point.z;
@@ -614,7 +642,7 @@ function Lidar3D({
 
     const stats: LidarDebugStats = {
       pointsCount: valid,
-      sourcePointsCount: rawDisplayPoints.length,
+      sourcePointsCount: n,
       min: { x: minX, y: minY, z: minZ },
       max: { x: maxX, y: maxY, z: maxZ },
       threeMin: { x: threeMinX, y: threeMinY, z: threeMinZ },
@@ -628,7 +656,7 @@ function Lidar3D({
     cloud.userData = { debugStats: stats };
     renderRequestRef.current?.();
     setCloudInfo({ count: written, stats });
-  }, [colorMode, frameId, rawDisplayPoints, resolvedFrame, vehiclePose]);
+  }, [colorMode, frameId, pointsXyzi, pointCount, hasPoints, fallbackPoints, resolvedFrame, vehiclePose]);
 
   useEffect(() => {
     if (!autoFit || !hasPoints) {
@@ -664,7 +692,7 @@ function Lidar3D({
       <div className="lidar-hud">
         <span>{resolvedFrame || frameId || "raw frame"}</span>
         <span>left orbit / right pan / wheel zoom</span>
-        <span>{points.length.toLocaleString()} pts</span>
+        <span>{pointCount.toLocaleString()} pts</span>
       </div>
     </div>
   );
