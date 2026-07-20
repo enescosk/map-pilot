@@ -22,8 +22,8 @@ function ConnectionPanel({ onConnect, currentSource, connected, backendError }: 
     const s = stored("mp_source", "vehicle-ros");
     return (s === "mqtt" ? "mqtt" : "vehicle-ros") as SourceMode;
   });
-  const [vehicleIp, setVehicleIp] = useState(() => stored("mp_vehicle_ip", "172.22.78.35"));
-  const [mqttIp, setMqttIp] = useState(() => stored("mp_mqtt_ip", "172.22.78.35"));
+  const [vehicleIp, setVehicleIp] = useState(() => stored("mp_vehicle_ip", window.location.hostname));
+  const [mqttIp, setMqttIp] = useState(() => stored("mp_mqtt_ip", window.location.hostname));
 
   function handleConnect() {
     save("mp_source", source);
